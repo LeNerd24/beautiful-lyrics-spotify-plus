@@ -7,3 +7,9 @@
 /src/native/build
 /src/native/app/build
 /build
+/test-output
+/lyrics.apk
+/tests
+/tools
+/scripts
+/src/native/app/src/test

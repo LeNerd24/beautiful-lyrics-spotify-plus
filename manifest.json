@@ -1,4 +1,5 @@
 {
+    "$schema": "https://lenerd46.github.io/spotifyplus-docs/schemas/manifest.schema.json",
     "id": "com.lenerd.beautifullyrics",
     "name": "Beautiful Lyrics",
     "description": "Adds beautiful lyrics to Spotify!",

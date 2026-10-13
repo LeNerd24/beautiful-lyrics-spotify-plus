@@ -1,15 +1,17 @@
 import React, { useRef, useState } from 'react';
-import { Text, ScrollView } from 'spotifyplus/react';
+import { Text, ScrollView, View } from 'spotifyplus/react';
 import { TransformedLyrics } from './lyric-utilities';
 import { useAnimatedProps, usePlaybackClock } from 'spotifyplus/react/Animated';
 import { LyricsFontFamily } from '../theme/fonts';
 import ScrollingLyrics from './scrolling-lyrics';
 import { AnimationStyle } from '../Entities/animation-style';
 import { LyricsInteractionProps, LyricsViewport } from '../Components/player-chrome';
+import { LyricsPresentation, linePresentation } from './presentation';
 
 interface Props extends LyricsInteractionProps {
     lyrics: TransformedLyrics | undefined;
     animationStyle: AnimationStyle;
+    presentation?: LyricsPresentation;
 }
 
 const LyricsView = ({ lyrics, ...props }: Props) => {
@@ -23,7 +25,7 @@ const LyricsView = ({ lyrics, ...props }: Props) => {
     return <SyncedLyricsView lyrics={lyrics} playbackMs={playbackMs} {...props} />;
 };
 
-const StaticLyrics = ({ lyrics, controlsOpacity, controlsHeight, onRevealControls }: Props) => {
+const StaticLyrics = ({ lyrics, controlsOpacity, controlsHeight, onRevealControls, presentation }: Props) => {
     const previousOffset = useRef(0);
     const mask = useAnimatedProps(() => {
         'worklet';
@@ -40,9 +42,14 @@ const StaticLyrics = ({ lyrics, controlsOpacity, controlsHeight, onRevealControl
                 if (offset < previousOffset.current - 1) onRevealControls();
                 previousOffset.current = offset;
             }}>
-                {lyrics.Lines.map((line, index) => <Text key={index} onPress={onRevealControls} style={{ fontFamily: LyricsFontFamily, fontSize: 32, color: '#BFFFFFFF', paddingHorizontal: 28, paddingVertical: 14 }}>
-                    {line.Text}
-                </Text>)}
+                {lyrics.Lines.map((line, index) => {
+                    const display = linePresentation(line.Text, line.TranslatedText, line.RomanizedText, presentation);
+                    return <View key={index} onPress={onRevealControls} style={{ paddingHorizontal: 28, paddingVertical: 14 }}>
+                        <Text style={{ fontFamily: LyricsFontFamily, fontSize: 32, color: '#BFFFFFFF' }}>{display.lead}</Text>
+                        {display.secondary && <Text style={{ fontFamily: LyricsFontFamily, fontSize: 18, color: '#BFFFFFFF', marginTop: 3 }}>{display.secondary}</Text>}
+                        {display.pronunciation && <Text style={{ fontFamily: LyricsFontFamily, fontSize: 18, color: '#BFFFFFFF', marginTop: 3 }}>{display.pronunciation}</Text>}
+                    </View>;
+                })}
             </ScrollView>
         </LyricsViewport>);
 };

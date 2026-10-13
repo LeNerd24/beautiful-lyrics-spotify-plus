@@ -9,11 +9,17 @@ import LyricsSkeleton from './Components/lyrics-skeleton';
 import { AnimationStyle } from './Entities/animation-style';
 import { ChromeButton, LyricsInset, LyricsTitle, PlayerControls } from './Components/player-chrome';
 import { CONTROLS_FADE_MS, ControlsVisibility } from './Components/player-model';
+import { nativeFadeStyle } from './Components/native-fade';
 import { GestureDetector } from 'spotifyplus/react/Gesture';
+import { SingControl } from './Components/sing-control';
+import TranslationMenu from './Components/translation-menu';
+import { useLyricsSettings } from './settings';
+import { sameLanguage, supportsPronunciation, targetLanguage } from './Lyrics/languages';
+import { useTranslation } from './Lyrics/use-translation';
 
 const AnimatedBackground = createNativeComponent<CommonViewProps & { imageUrl?: string }>('AnimatedBackground');
 
-const App = ({ headerRef, headerGesture }: { headerRef?: React.Ref<View>; headerGesture?: React.ComponentProps<typeof GestureDetector>['gesture'] } = {}) => {
+const App = ({ headerRef, headerGesture }: { headerRef?: React.RefObject<View | null>; headerGesture?: React.ComponentProps<typeof GestureDetector>['gesture'] } = {}) => {
     const [lyrics, setLyrics] = useState<TransformedLyrics>();
     const [track, setTrack] = useState<SpotifyTrack>();
     const [loading, setLoading] = useState(true);
@@ -23,6 +29,16 @@ const App = ({ headerRef, headerGesture }: { headerRef?: React.Ref<View>; header
     const [liked, setLiked] = useState(false);
     const [animationStyle, setAnimationStyle] = useState<AnimationStyle>(() => SpotifyPlus.Platform.Storage.get('lyrics-animation-style') === 'apple' ? 'apple' : 'beautiful');
     const [controlsVisible, setControlsVisible] = useState(paused);
+    const translationSettings = useLyricsSettings();
+    let target: string | undefined;
+
+    try {
+        target = targetLanguage(translationSettings.translationLanguage);
+    }
+    catch (_) { }
+
+    const translated = useTranslation(lyrics, target);
+    const canTranslate = !!lyrics && (!target || !sameLanguage(lyrics.language, target));
 
     const likedRef = useRef(false);
     const panel = useRef<View | null>(null);
@@ -45,6 +61,7 @@ const App = ({ headerRef, headerGesture }: { headerRef?: React.Ref<View>; header
     const revealControls = useCallback(() => visibility.reveal(), [visibility]);
     const holdControls = useCallback(() => visibility.hold(), [visibility]);
     const releaseControls = useCallback(() => visibility.release(), [visibility]);
+    const holdSingControls = useCallback(() => { visibility.hold(); visibility.reveal(); }, [visibility]);
     const seekInteraction = useCallback(() => visibility.interact(), [visibility]);
 
     useEffect(() => {
@@ -70,6 +87,7 @@ const App = ({ headerRef, headerGesture }: { headerRef?: React.Ref<View>; header
     useEffect(() => {
         const settingChanged = (payload: unknown) => {
             const setting = payload as ExtensionSetting | undefined;
+
             if (setting?.id === 'lyrics-animation-style' && setting.type === 'select') {
                 setAnimationStyle(setting.value === 'apple' ? 'apple' : 'beautiful');
             }
@@ -134,7 +152,11 @@ const App = ({ headerRef, headerGesture }: { headerRef?: React.Ref<View>; header
     const panelStyle = useAnimatedStyle(() => {
         'worklet';
 
-        return { opacity: controlsOpacity.value };
+        return nativeFadeStyle(controlsOpacity.value);
+    });
+    const singStyle = useAnimatedStyle(() => {
+        'worklet';
+        return { bottom: Math.max(0, controlsHeight.value - 4), ...nativeFadeStyle(controlsOpacity.value) };
     });
 
     const toggleLike = () => {
@@ -197,9 +219,7 @@ const App = ({ headerRef, headerGesture }: { headerRef?: React.Ref<View>; header
                 <View ref={densityProbe} pointerEvents='none' style={{ position: 'absolute', top: 0, width: 100, height: 0 }} />
 
                 {lyrics ? (
-                    <LyricsView lyrics={lyrics} animationStyle={animationStyle} controlsShown={controlsShown}
-                        controlsOpacity={controlsOpacity} controlsHeight={controlsHeight} onRevealControls={revealControls}
-                        onInteractionStart={holdControls} onInteractionEnd={releaseControls} onSeekInteraction={seekInteraction} />)
+                    <LyricsView lyrics={translated.lyrics} presentation={{ ...translationSettings, translation: translated.translation, pronunciation: translated.pronunciation }} animationStyle={animationStyle} controlsShown={controlsShown} controlsOpacity={controlsOpacity} controlsHeight={controlsHeight} onRevealControls={revealControls} onInteractionStart={holdControls} onInteractionEnd={releaseControls} onSeekInteraction={seekInteraction} />)
                     : <View onPress={revealControls} style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 28 }}>
                         {loading ? <LyricsSkeleton /> : <Text style={{ fontSize: 18, color: '#BFFFFFFF' }}>{error}</Text>}
                     </View>}
@@ -207,7 +227,19 @@ const App = ({ headerRef, headerGesture }: { headerRef?: React.Ref<View>; header
                 <Animated.View ref={panel} pointerEvents={controlsVisible ? 'auto' : 'none'} style={[{ position: 'absolute', left: 0, right: 0, bottom: 0, elevation: 30 }, panelStyle]}>
                     <PlayerControls key={track?.uri} playbackMs={playbackMs} durationMs={track?.durationMs ?? 0} paused={paused} onInteract={revealControls} onHold={() => { holdControls(); revealControls(); }} onRelease={releaseControls} />
                 </Animated.View>
+
+                <Animated.View pointerEvents={controlsVisible ? 'auto' : 'none'} style={[{ position: 'absolute', right: 22, elevation: 31 }, singStyle]}>
+                    <SingControl visible={controlsVisible} reducedMotion={reducedMotion} onHold={holdSingControls} onRelease={releaseControls} />
+                </Animated.View>
             </View>
+
+            {canTranslate && <TranslationMenu key={`${track?.uri}:${target}`} supported={supportsPronunciation(lyrics!.language)}
+                controlsVisible={controlsVisible} controlsOpacity={controlsOpacity} controlsHeight={controlsHeight}
+                reducedMotion={reducedMotion} onHold={holdSingControls} onRelease={releaseControls}
+                translation={translated.translation} pronunciation={translated.pronunciation}
+                translating={translated.translating} romanizing={translated.romanizing}
+                error={!target ? 'Enter a supported translation language code in settings, such as en or fr.' : translated.error}
+                onTranslation={translated.toggleTranslation} onPronunciation={translated.togglePronunciation} />}
         </View>);
 };
 

@@ -2,7 +2,9 @@ import { ExtensionSetting, SpotifyPlus } from 'spotifyplus';
 import { LyricsOpenTrigger, LyricsOverlay } from './Components/lyrics-overlay';
 
 const animationSetting: Extract<ExtensionSetting, { type: 'select' }> = {
-    id: 'lyrics-animation-style', type: 'select', label: 'Word animation',
+    id: 'lyrics-animation-style',
+    type: 'select',
+    label: 'Word animation',
     description: 'Applies to word-by-word lyrics.',
     value: SpotifyPlus.Platform.Storage.get('lyrics-animation-style') === 'apple' ? 'apple' : 'beautiful',
     options: [{ label: 'Beautiful Lyrics', value: 'beautiful' }, { label: 'Apple Music', value: 'apple' }]
@@ -17,6 +19,7 @@ SpotifyPlus.on('settings.changed', (payload: unknown) => {
         animationSetting.value = setting.value === 'apple' ? 'apple' : 'beautiful';
         SpotifyPlus.Platform.Storage.set(setting.id, animationSetting.value);
     }
+
 });
 
 const toggleAnimationStyle = () => {

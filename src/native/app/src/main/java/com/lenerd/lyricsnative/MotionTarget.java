@@ -9,6 +9,7 @@ interface MotionTarget {
 
     static LyricCanvasView register(MotionTarget target) {
         LyricRowView row = null;
+
         for (ViewParent parent = target.motionView().getParent(); parent != null; parent = parent.getParent()) {
             if (parent instanceof LyricRowView) row = (LyricRowView) parent;
             if (parent instanceof LyricCanvasView) {
@@ -21,6 +22,8 @@ interface MotionTarget {
 
     static void unregister(MotionTarget target, LyricCanvasView canvas) {
         if (canvas == null) return;
-        for (LyricRowView row : canvas.rows) row.targets.remove(target);
+        for (LyricRowView row : canvas.rows) {
+            row.targets.remove(target);
+        }
     }
 }

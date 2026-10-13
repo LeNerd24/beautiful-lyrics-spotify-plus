@@ -1,7 +1,8 @@
 import { franc } from 'franc';
 import { Lyrics, TextMetadata } from '../Types/lyrics-types';
-import pinyin from 'pinyin';
-import Aromize from './Aromize';
+import { localRomanization } from './romanization';
+import { lyricText } from './word-alignment';
+import { cloneLyrics } from './platform-utils';
 
 type NaturalAlignment = 'right' | 'left';
 type RomanizedLanguage = 'chinese' | 'japanese' | 'korean' | 'none';
@@ -34,56 +35,18 @@ const getNaturalAlignment = (language: string): NaturalAlignment => {
     return rightToLeftLanguages.includes(language) ? 'right' : 'left';
 }
 
-const generateChineseRomanization = <L extends TextMetadata>(lyricMetadata: L, primaryLanguage: string): RomanizedLanguage => {
-    if (primaryLanguage === 'cmn') {
-        const romanized = pinyin(lyricMetadata.Text, {
-            segment: false,
-            group: true
-        });
-
-        romanized.map(result => lyricMetadata.RomanizedText = result.join('-'));
-        return 'chinese';
-    }
-
-    return 'none';
-}
-
-const generateJapaneseRomanization = <L extends TextMetadata>(lyricMetadata: L, primaryLanguage: string): RomanizedLanguage => {
-    if ((primaryLanguage === 'jpn')) {
-        return 'none';
-    }
-
-    return 'none';
-}
-
-const generateKoreanRomanization = <L extends TextMetadata>(lyricMetadata: L, primaryLanguage: string): RomanizedLanguage => {
-    if (primaryLanguage === 'kor') {
-        lyricMetadata.RomanizedText = Aromize(lyricMetadata.Text, 'RevisedRomanizationTransliteration');
-        return 'korean';
-    }
-
-    return 'none';
-}
-
-const generateRomanization = <L extends TextMetadata, I extends BaseInformation>(lyricMetadata: L, rootInformation: I): void => {
-    if (generateKoreanRomanization(lyricMetadata, rootInformation.language) === 'none') {
-        if (generateChineseRomanization(lyricMetadata, rootInformation.language) === 'none') {
-            if (generateJapaneseRomanization(lyricMetadata, rootInformation.language) !== 'none') {
-                rootInformation.romanizedLanguage = 'japanese';
-            }
-        } else {
-            rootInformation.romanizedLanguage = 'chinese';
-        }
-    } else {
-        rootInformation.romanizedLanguage = 'korean';
-    }
-}
-
+const generateRomanization = <L extends TextMetadata>(metadata: L, information: BaseInformation): void => {
+    metadata.RomanizedText = localRomanization(metadata.Text, information.language);
+    if (information.language === 'kor') information.romanizedLanguage = 'korean';
+    if (information.language === 'cmn') information.romanizedLanguage = 'chinese';
+    if (information.language === 'jpn') information.romanizedLanguage = 'japanese';
+};
 export const transformLyrics = (providerLyrics: Lyrics): TransformedLyrics => {
-    const lyrics = (providerLyrics as TransformedLyrics);
+    if (!providerLyrics || !['Static', 'Line', 'Syllable'].includes(providerLyrics.Type)) throw new Error('No lyrics available for this song.');
+    const lyrics = cloneLyrics(providerLyrics) as TransformedLyrics;
 
     if (lyrics.Type === 'Static') {
-        let textToProcess = lyrics.Lines[0].Text;
+        let textToProcess = lyrics.Lines[0]?.Text ?? '';
         for (let index = 1; index < lyrics.Lines.length; index += 1) {
             textToProcess += `\n${lyrics.Lines[index].Text}`;
         }
@@ -119,11 +82,7 @@ export const transformLyrics = (providerLyrics: Lyrics): TransformedLyrics => {
         const Lines = [];
         for (const vocalGroup of lyrics.Content) {
             if (vocalGroup.Type === 'Vocal') {
-                let text = vocalGroup.Lead.Syllables[0].Text;
-                for (let index = 1; index < vocalGroup.Lead.Syllables.length; index += 1) {
-                    const syllable = vocalGroup.Lead.Syllables[index];
-                    text += `${syllable.IsPartOfWord ? '' : ' '}${syllable.Text}`;
-                }
+                const text = lyricText(vocalGroup.Lead.Syllables);
 
                 Lines.push(text);
             }
@@ -142,7 +101,7 @@ export const transformLyrics = (providerLyrics: Lyrics): TransformedLyrics => {
                 }
 
                 if (vocalGroup.Background !== undefined) {
-                    for (const syllable of vocalGroup.Background[0].Syllables) {
+                    for (const syllable of vocalGroup.Background.flatMap(vocal => vocal.Syllables)) {
                         generateRomanization(syllable, lyrics);
                     }
                 }
@@ -188,7 +147,7 @@ export const transformLyrics = (providerLyrics: Lyrics): TransformedLyrics => {
     let addedStartInterlude = false;
 
     const firstVocalGroup = vocalTimes[0];
-    if (firstVocalGroup.startTime >= minimumInterludeDuration) {
+    if (firstVocalGroup && firstVocalGroup.startTime >= minimumInterludeDuration) {
         vocalTimes.unshift({ startTime: -1, endTime: -1 });
         lyrics.Content.unshift({
             Type: 'Interlude',

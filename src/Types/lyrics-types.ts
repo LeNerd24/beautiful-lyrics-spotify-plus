@@ -7,6 +7,8 @@ export type TextMetadata = {
     Text: string;
     RomanizedText?: string;
     TranslatedText?: string;
+    Pronunciation?: SyllableList;
+    Translation?: SyllableList;
 };
 
 type VocalMetadata = (TimeMetadata & TextMetadata);
@@ -41,6 +43,7 @@ export type LineSyncedLyrics = (
 export type SyllableMetadata = (
     VocalMetadata & {
         IsPartOfWord: boolean;
+        Emphasized?: boolean;
     }
 );
 
@@ -48,6 +51,8 @@ export type SyllableList = SyllableMetadata[];
 export type SyllableVocal = (
     TimeMetadata & {
         Syllables: SyllableList;
+        Pronunciation?: SyllableList;
+        Translation?: SyllableList;
     }
 );
 

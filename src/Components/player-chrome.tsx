@@ -27,9 +27,9 @@ export function ChromeButton({ name, label, onPress, filled = false, compact = f
     gesture?: React.ComponentProps<typeof GestureDetector>['gesture'];
 }) {
     const button = (
-        <TouchableOpacity accessibilityLabel={label} onPress={onPress} activeOpacity={0.6} style={{ width: compact ? 44 : 68, height: compact ? 44 : 60, justifyContent: 'center', alignItems: 'center' }}>
-            <View style={{ width: compact ? 28 : 36, height: compact ? 28 : 36, borderRadius: compact ? 14 : 0, backgroundColor: compact ? '#26FFFFFF' : '#00FFFFFF', alignItems: 'center', justifyContent: 'center' }}>
-                <LyricsIcon name={name} filled={filled} style={{ width: compact ? 19 : name === 'play' || name === 'pause' ? 34 : 28, height: compact ? 19 : name === 'play' || name === 'pause' ? 34 : 28 }} />
+        <TouchableOpacity accessibilityLabel={label} onPress={onPress} activeOpacity={0.6} style={{ width: compact ? 44 : 76, height: compact ? 44 : 72, justifyContent: 'center', alignItems: 'center' }}>
+            <View style={{ width: compact ? 28 : 42, height: compact ? 28 : 42, borderRadius: compact ? 14 : 0, backgroundColor: compact ? '#26FFFFFF' : '#00FFFFFF', alignItems: 'center', justifyContent: 'center' }}>
+                <LyricsIcon name={name} filled={filled} style={{ width: compact ? 19 : name === 'play' || name === 'pause' ? 40 : 34, height: compact ? 19 : name === 'play' || name === 'pause' ? 40 : 34 }} />
             </View>
         </TouchableOpacity>);
 
@@ -60,7 +60,7 @@ export function PlayerControls({ playbackMs, durationMs, paused, onInteract, onH
     });
 
     return (
-        <View style={{ paddingHorizontal: 28, paddingTop: 12, paddingBottom: 26 }} onPress={onInteract}>
+        <View style={{ paddingHorizontal: 28, paddingTop: 18, paddingBottom: 38 }} onPress={onInteract}>
             <AnimatedSlider accessibilityLabel="Playback position" min={0} max={Math.max(1, durationMs)}
                 progressTintColor="#CFFFFFFF" progressBackgroundTintColor="#40FFFFFF" thumbTintColor="#00FFFFFF"
                 splitTrack={false} style={{ width: '100%', height: 28 }} animatedProps={progressProps}
@@ -76,7 +76,7 @@ export function PlayerControls({ playbackMs, durationMs, paused, onInteract, onH
                 <Text style={{ fontSize: 11, color: '#99FFFFFF' }}>{formatPlaybackTime(durationMs)}</Text>
             </View>
 
-            <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', marginTop: 14 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', marginTop: 22 }}>
                 <ChromeButton name="previous" label="Previous track" onPress={() => { onInteract(); SpotifyPlus.Player.skipPrevious(); }} />
                 <ChromeButton name={paused ? 'play' : 'pause'} label={paused ? 'Play' : 'Pause'}
                     onPress={() => { onInteract(); SpotifyPlus.Player.togglePlay(); }} />

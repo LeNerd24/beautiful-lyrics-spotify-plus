@@ -2,25 +2,38 @@
     "name": "beautiful-lyrics",
     "version": "1.0.0",
     "dependencies": {
+        "@iamtraction/google-translate": "^2.0.1",
         "cubic-spline": "^3.0.3",
         "curve-interpolator": "^3.3.1",
         "d3-ease": "^3.0.1",
         "esbuild": "^0.28.0",
         "franc": "^6.2.0",
-        "kuroshiro": "^1.2.0",
-        "pinyin": "^4.0.0",
-        "spotifyplus": "^0.1.11",
-        "typescript-cubic-spline": "^1.0.1"
+        "iso-639-3": "^3.0.1",
+        "pinyin-pro": "^3.29.5",
+        "spotifyplus": "file:../SpotifyPlus/app/src/main/assets/nodejs-src",
+        "transliteration": "^2.6.1",
+        "typescript-cubic-spline": "^1.0.1",
+        "wanakana": "^5.3.1"
     },
     "devDependencies": {
         "@types/d3-ease": "^3.0.2",
         "@types/node": "^25.9.1",
-        "@types/react": "^19.2.14"
+        "@types/react": "19.2.14",
+        "typescript": "^5.9.3"
     },
     "scripts": {
-        "test": "node --test tools/lyrics-scroll.test.mjs tools/native-motion.test.mjs tools/player-interaction.test.mjs tools/lyrics-sheet.test.mjs tools/animation-menu.test.mjs",
+        "test": "node scripts/test-java.mjs",
+        "predev": "npm run build:native",
         "dev": "spotifyplus dev",
+        "prebuild": "npm run build:native",
         "build:native": "node scripts/build-native.mjs",
-        "build": "spotifyplus build"
+        "build": "spotifyplus build",
+        "test:translation": "node --test tools/tests/*.test.mjs",
+        "typecheck": "tsc --noEmit -p src/tsconfig.json"
+    },
+    "overrides": {
+        "@iamtraction/google-translate": {
+            "undici": "^6.27.0"
+        }
     }
 }

@@ -13,10 +13,11 @@ import { ESTIMATED_LINE_HEIGHT, INTERLUDE_EXIT_MS, INTERLUDE_HEIGHT, LineRange, 
 import { scrollSpring, springPosition, springVelocity } from './scroll-spring';
 import { LyricsInteractionProps, LyricsViewport } from '../Components/player-chrome';
 import { lyricTapAction, revealsEarlierLyrics } from '../Components/player-model';
+import { LyricsPresentation } from './presentation';
 
 type SyncedLyrics = LineSyncedLyrics | SyllableSyncedLyrics;
 type LyricItem = SyncedLyrics['Content'][number];
-type Props = LyricsInteractionProps & { lyrics: SyncedLyrics; playbackMs: SharedValue<number>; animationStyle: AnimationStyle };
+type Props = LyricsInteractionProps & { lyrics: SyncedLyrics; playbackMs: SharedValue<number>; animationStyle: AnimationStyle; presentation?: LyricsPresentation };
 const lyricContentStyle = { paddingVertical: 2 };
 
 function getTimeline(content: SyncedLyrics['Content'], interludesOnly = false): LineRange[] {
@@ -40,7 +41,7 @@ function getTimeline(content: SyncedLyrics['Content'], interludesOnly = false): 
     return ranges;
 }
 
-const ScrollingLyrics = ({ lyrics, playbackMs, animationStyle, controlsShown, controlsOpacity, controlsHeight, onRevealControls, onInteractionStart, onInteractionEnd, onSeekInteraction }: Props) => {
+const ScrollingLyrics = ({ lyrics, playbackMs, animationStyle, presentation, controlsShown, controlsOpacity, controlsHeight, onRevealControls, onInteractionStart, onInteractionEnd, onSeekInteraction }: Props) => {
     const timeline = useMemo(() => getTimeline(lyrics.Content), [lyrics]);
     const interludes = useMemo(() => lyrics.Content.map(item => item.Type === 'Interlude'), [lyrics]);
     const interludeAlignments = useMemo(() => {
@@ -457,6 +458,7 @@ const ScrollingLyrics = ({ lyrics, playbackMs, animationStyle, controlsShown, co
                         const index = window.first + relativeIndex;
                         return (
                             <ScrollingLine key={index} item={item} index={index} playbackMs={playbackMs} animationStyle={animationStyle}
+                                presentation={presentation}
                                 interludeOppositeAligned={interludeAlignments[index]}
                                 layout={layout} heights={heights} measurementVersion={measurementVersion}
                                 measurementTick={measurementTick} density={density}
@@ -473,6 +475,7 @@ const ScrollingLyrics = ({ lyrics, playbackMs, animationStyle, controlsShown, co
 };
 
 type RowProps = {
+    presentation?: LyricsPresentation;
     interludeOppositeAligned: boolean;
     animationStyle: AnimationStyle;
     item: LyricItem;
@@ -492,7 +495,7 @@ type RowProps = {
     onRevealControls: () => void;
 };
 
-const ScrollingLine = React.memo(({ item, index, range, playbackMs, animationStyle, interludeOppositeAligned, layout, heights, measurementVersion, measurementTick, density, pan, controlsShown, onSeekLine, onRevealControls, viewportWidth }: RowProps) => {
+const ScrollingLine = React.memo(({ item, index, range, playbackMs, animationStyle, presentation, interludeOppositeAligned, layout, heights, measurementVersion, measurementTick, density, pan, controlsShown, onSeekLine, onRevealControls, viewportWidth }: RowProps) => {
     const row = useRef<View | null>(null);
     const pressed = useSharedValue(false);
     const pressedStyle = useAnimatedStyle(() => {
@@ -526,10 +529,10 @@ const ScrollingLine = React.memo(({ item, index, range, playbackMs, animationSty
     const measured = useSharedValue({ width: -1, height: 0, stable: false });
 
     useEffect(() => {
-        if (!('StartTime' in item) && item.Type === 'Vocal') {
+        if (item.Type === 'Vocal') {
             measured.value = { width: -1, height: 0, stable: false };
         }
-    }, [animationStyle, item, measured]);
+    }, [animationStyle, item, presentation?.translation, presentation?.pronunciation, presentation?.swapTranslatedLines, presentation?.hideOriginalLyrics, measured]);
 
     const geometryProps = useAnimatedProps(() => {
         'worklet';
@@ -583,9 +586,9 @@ const ScrollingLine = React.memo(({ item, index, range, playbackMs, animationSty
                 ) : (
                     <View style={[styles.lyricsLine, 'StartTime' in item && (item.OppositeAligned ? styles.oppositeAlignedLine : styles.defaultAlignedLine)]} >
                         {'StartTime' in item ? (
-                            <LineView line={item} playbackMs={playbackMs} style={lyricContentStyle} />
+                            <LineView line={item} playbackMs={playbackMs} presentation={presentation} style={lyricContentStyle} />
                         ) : (
-                            <SyllableVocalLine metadata={item} playbackMs={playbackMs} animationStyle={animationStyle} style={lyricContentStyle} />
+                            <SyllableVocalLine metadata={item} playbackMs={playbackMs} presentation={presentation} animationStyle={animationStyle} style={lyricContentStyle} />
                         )}
                     </View>
                 )}

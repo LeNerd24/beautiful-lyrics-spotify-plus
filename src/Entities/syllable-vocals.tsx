@@ -1,227 +1,70 @@
-import React, { useMemo } from 'react'
-import { View, Text, HorizontalStackLayout, CommonViewProps, NativeView } from 'spotifyplus/react'
-import { SyllableVocalSet } from '../Types/lyrics-types'
+import React, { useMemo } from 'react';
+import { View, CommonViewProps } from 'spotifyplus/react';
+import { SyllableList, SyllableVocalSet } from '../Types/lyrics-types';
 import SyllableView from './syllable';
 import Spline from 'typescript-cubic-spline';
-import { SpotifyPlus } from 'spotifyplus';
 import { SharedValue } from 'spotifyplus/react/Animated';
 import { LyricMotion } from '../Components/lyric-motion';
 import { sampleMotion } from './native-motion';
 import { AnimationStyle, appleFloatTrack } from './animation-style';
+import { LyricsPresentation } from '../Lyrics/presentation';
+import { isEmphasized } from '../Lyrics/word-alignment';
 
 interface Props extends CommonViewProps {
-    animationStyle: AnimationStyle;
-    metadata: SyllableVocalSet;
-    playbackMs: SharedValue<number>;
+    metadata: SyllableVocalSet; playbackMs: SharedValue<number>;
+    animationStyle: AnimationStyle; presentation?: LyricsPresentation;
 }
 
 const restingWordTrack = sampleMotion(0, 0, () => [0, 0, 0, 0, 1, 1]);
+const scaleSpline = new Spline([0, 0.7, 1], [1, 1.03, 1]);
+const yOffsetSpline = new Spline([0, 0.9, 1], [1 / 100, -1 / 60, 0]);
+const glowSpline = new Spline([0, 0.15, 0.6, 1], [0, 1, 1, 0]);
 
-const ScaleRange = [
-    {
-        time: 0,
-        value: 1
-    },
-    {
-        time: 0.7,
-        value: 1.03
-    },
-    {
-        time: 1,
-        value: 1
-    }
-];
-
-const YOffsetRange = [
-    {
-        time: 0,
-        value: (1 / 100)
-    },
-    {
-        time: 0.9,
-        value: -(1 / 60)
-    },
-    {
-        time: 1,
-        value: 0
-    }
-];
-
-const GlowRange = [
-    {
-        time: 0,
-        value: 0
-    },
-    {
-        time: 0.15,
-        value: 1
-    },
-    {
-        time: 0.6,
-        value: 1
-    },
-    {
-        time: 1,
-        value: 0
-    }
-];
-
-const SyllableVocalLine = ({ metadata, playbackMs, animationStyle }: Props) => {
-    const startTime = metadata.Lead.StartTime;
-    const vocalLines = [metadata.Lead, ...(metadata.Background ?? []),];
-
-    const lineStartTime = Math.min(...vocalLines.map(vocal => vocal.StartTime),);
-    const lineStartMs = lineStartTime * 1000;
-
-    const lineEndTime = Math.max(...vocalLines.map(vocal => vocal.EndTime),);
-    const lineEndMs = lineEndTime * 1000;
-
-    const containerStyle = metadata.OppositeAligned
-        ? {
-            flex: 1,
-            paddingRight: 25,
-            paddingLeft: 35,
-            alignItems: 'flex-end' as const,
-            textAlign: 'right' as const,
-        }
-        : {
-            flex: 1,
-            paddingLeft: 25,
-            paddingRight: 35,
-        };
-
-    const vocalFlowStyle = {
-        width: '100%' as const,
-        flexWrap: 'wrap' as const,
-        flexDirection: 'row' as const,
-        justifyContent: metadata.OppositeAligned ? 'flex-end' as const : 'flex-start' as const,
-    };
-
-    const leadSyllables = useMemo(() => {
-        return metadata.Lead.Syllables.map((syllable) => {
-            const scaleTimes = ScaleRange.map(({ time }) => time);
-            const scaleValues = ScaleRange.map(({ value }) => value);
-
-            const yOffsetTimes = YOffsetRange.map(({ time }) => time);
-            const yOffsetValues = YOffsetRange.map(({ value }) => value);
-
-            const glowTimes = GlowRange.map(({ time }) => time);
-            const glowValues = GlowRange.map(({ value }) => value);
-
-            const scaleSpline = new Spline(scaleTimes, scaleValues);
-            const yOffsetSpline = new Spline(yOffsetTimes, yOffsetValues);
-            const glowSpline = new Spline(glowTimes, glowValues);
-
-            const emphasized = syllable.EndTime - syllable.StartTime >= 1 && syllable.Text.length <= 12;
-
-            return ({
-                syllable,
-                emphasized,
-                scaleSpline,
-                yOffsetSpline,
-                glowSpline,
-            });
-        });
-    }, [metadata, startTime]);
-
-    const backgroundSyllables = useMemo(() => {
-        if (!metadata.Background) return null;
-
-        return metadata.Background[0].Syllables.map((syllable) => {
-            const scaleTimes = ScaleRange.map(({ time }) => time);
-            const scaleValues = ScaleRange.map(({ value }) => value);
-
-            const yOffsetTimes = YOffsetRange.map(({ time }) => time);
-            const yOffsetValues = YOffsetRange.map(({ value }) => value);
-
-            const glowTimes = GlowRange.map(({ time }) => time);
-            const glowValues = GlowRange.map(({ value }) => value);
-
-            const scaleSpline = new Spline(scaleTimes, scaleValues);
-            const yOffsetSpline = new Spline(yOffsetTimes, yOffsetValues);
-            const glowSpline = new Spline(glowTimes, glowValues);
-
-            const emphasized = syllable.EndTime - syllable.StartTime >= 1 && syllable.Text.length <= 12;
-
-            return ({
-                syllable,
-                emphasized,
-                scaleSpline,
-                yOffsetSpline,
-                glowSpline,
-            });
-        });
-    }, [metadata, startTime]);
-
-    const groupSyllablesInWords = <T extends { syllable: { IsPartOfWord?: boolean } }>(syllables: T[]) => {
-        const words: T[][] = [];
-        let currentWord: T[] = [];
+export const VocalRow = ({ syllables, playbackMs, animationStyle, small = false, opposite = false }: { syllables: SyllableList; playbackMs: SharedValue<number>; animationStyle: AnimationStyle; small?: boolean; opposite?: boolean; }) => {
+    const words = useMemo(() => {
+        const groups: SyllableList[] = [];
+        let group: SyllableList = [];
 
         for (const syllable of syllables) {
-            currentWord.push(syllable);
-
-            if (!syllable.syllable.IsPartOfWord) {
-                words.push(currentWord);
-                currentWord = [];
-            }
+            group.push(syllable);
+            if (!syllable.IsPartOfWord) { groups.push(group); group = []; }
         }
 
-        if (currentWord.length > 0) words.push(currentWord);
-        return words;
-    }
+        if (group.length) groups.push(group);
 
-    const leadWords = useMemo(() => groupSyllablesInWords(leadSyllables), [leadSyllables]);
-    const backgroundWords = useMemo(() => groupSyllablesInWords(backgroundSyllables ?? []), [backgroundSyllables]);
-    const leadFloatTracks = useMemo(() => animationStyle === 'apple' ? leadWords.map(word => appleFloatTrack(word[0].syllable.StartTime, word[word.length - 1].syllable.EndTime, 36)) : [], [animationStyle, leadWords]);
-    const backgroundFloatTracks = useMemo(() => animationStyle === 'apple' ? backgroundWords.map(word => appleFloatTrack(word[0].syllable.StartTime, word[word.length - 1].syllable.EndTime, 18, true)) : [], [animationStyle, backgroundWords]);
-    const WordContainer = LyricMotion;
+        return groups;
+    }, [syllables]);
 
-    return (
-        <LyricMotion style={containerStyle} opacityRange={[lineStartMs, lineEndMs]}>
-            <View style={vocalFlowStyle}>
-                {leadWords.map((word, index) => (
-                    <WordContainer key={index} motionTrack={animationStyle === 'apple' ? leadFloatTracks[index] : restingWordTrack} style={{ flexDirection: 'row' }}>
-                        {word.map(({ syllable, emphasized, scaleSpline, yOffsetSpline, glowSpline }, syllableIndex) => (
-                            <SyllableView
-                                key={syllableIndex}
-                                syllable={syllable}
-                                animationStyle={animationStyle}
-                                isLastWord={index === leadWords.length - 1}
-                                emphasized={emphasized}
-                                playbackMs={playbackMs}
-                                scaleSpline={scaleSpline}
-                                yOffsetSpline={yOffsetSpline}
-                                glowSpline={glowSpline}
-                            />
-                        ))}
-                    </WordContainer>
-                ))}
-            </View>
+    const floatTracks = useMemo(() => animationStyle === 'apple' ? words.map(word => appleFloatTrack(word[0].StartTime, word[word.length - 1].EndTime, small ? 18 : 36, small)) : [], [animationStyle, small, words]);
 
-            {backgroundSyllables && (
-                <View style={vocalFlowStyle}>
-                    {backgroundWords.map((word, index) => (
-                        <WordContainer key={index} motionTrack={animationStyle === 'apple' ? backgroundFloatTracks[index] : restingWordTrack} style={{ flexDirection: 'row' }}>
-                            {word.map(({ syllable, emphasized, scaleSpline, yOffsetSpline, glowSpline }, syllableIndex) => (
-                                <SyllableView
-                                    key={syllableIndex}
-                                    syllable={syllable}
-                                    animationStyle={animationStyle}
-                                    isLastWord={index === backgroundWords.length - 1}
-                                    emphasized={emphasized}
-                                    isBackground
-                                    playbackMs={playbackMs}
-                                    scaleSpline={scaleSpline}
-                                    yOffsetSpline={yOffsetSpline}
-                                    glowSpline={glowSpline}
-                                />
-                            ))}
-                        </WordContainer>
-                    ))}
-                </View>
-            )}
-        </LyricMotion>
-    )
-}
+    return <View style={{ width: '100%', flexWrap: 'wrap', flexDirection: 'row', justifyContent: opposite ? 'flex-end' : 'flex-start', marginTop: small ? 3 : 0 }}>
+        {words.map((word, index) => <LyricMotion key={index} motionTrack={animationStyle === 'apple' ? floatTracks[index] : restingWordTrack} style={{ flexDirection: 'row' }}>
+            {word.map((syllable, i) => (
+                <SyllableView key={i} syllable={syllable} emphasized={isEmphasized(syllable)}
+                    animationStyle={animationStyle} isLastWord={index === words.length - 1} isBackground={small}
+                    playbackMs={playbackMs} scaleSpline={scaleSpline} yOffsetSpline={yOffsetSpline} glowSpline={glowSpline} />))}
+        </LyricMotion>)}
+    </View>;
+};
 
-export default React.memo(SyllableVocalLine)
+const SyllableVocalLine = ({ metadata, playbackMs, animationStyle, presentation, style }: Props) => {
+    const lines = [metadata.Lead, ...(metadata.Background ?? [])];
+
+    const startMs = Math.min(...lines.map(v => v.StartTime)) * 1000;
+    const endMs = Math.max(...lines.map(v => v.EndTime)) * 1000;
+
+    const translated = presentation?.translation && metadata.Lead.Translation?.length ? metadata.Lead.Translation : undefined;
+    const hide = !!translated && !!presentation?.hideOriginalLyrics;
+    const swap = !!translated && (!!presentation?.swapTranslatedLines || hide);
+
+    const row = (syllables: SyllableList, small: boolean, key: string) => <VocalRow key={key} syllables={syllables} playbackMs={playbackMs} animationStyle={animationStyle} small={small} opposite={metadata.OppositeAligned} />;
+
+    return <LyricMotion opacityRange={[startMs, endMs]} style={[{ flex: 1, paddingLeft: metadata.OppositeAligned ? 35 : 25, paddingRight: metadata.OppositeAligned ? 25 : 35, alignItems: metadata.OppositeAligned ? 'flex-end' : 'flex-start' }, style]}>
+        {row(swap ? translated! : metadata.Lead.Syllables, false, 'lead')}
+        {translated && !hide && row(swap ? metadata.Lead.Syllables : translated, true, 'secondary')}
+        {presentation?.pronunciation && !hide && metadata.Lead.Pronunciation && row(metadata.Lead.Pronunciation, true, 'pronunciation')}
+        {!hide && metadata.Background?.map((v, i) => row(v.Syllables, true, `background-${i}`))}
+    </LyricMotion>;
+};
+
+export default React.memo(SyllableVocalLine);
