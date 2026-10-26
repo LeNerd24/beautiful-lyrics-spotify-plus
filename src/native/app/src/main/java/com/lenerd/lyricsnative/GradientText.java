@@ -1,10 +1,10 @@
-
 package com.lenerd.lyricsnative;
 
 import android.content.Context;
 import android.graphics.Color;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.View;
 
 import com.lenerd.spotifyplus.sdk.SpotifyPlusComponent;
 import com.lenerd.spotifyplus.sdk.spotify.SpotifyPlusContext;
@@ -96,15 +96,14 @@ public class GradientText extends SpotifyPlusComponent<GradientTextView> {
         int verticalGravity = view.getGravity() & Gravity.VERTICAL_GRAVITY_MASK;
 
         switch (textAlign) {
-            case "center":
-                view.setGravity(verticalGravity | Gravity.CENTER_HORIZONTAL);
+            case "center": view.setGravity(verticalGravity | Gravity.CENTER_HORIZONTAL);
+                view.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
                 break;
-            case "right":
-                view.setGravity(verticalGravity | Gravity.END);
+            case "right": view.setGravity(verticalGravity | Gravity.END);
+                view.setTextAlignment(View.TEXT_ALIGNMENT_VIEW_END);
                 break;
-            case "left":
-            default:
-                view.setGravity(verticalGravity | Gravity.START);
+            case "left": default: view.setGravity(verticalGravity | Gravity.START);
+                view.setTextAlignment(View.TEXT_ALIGNMENT_VIEW_START);
                 break;
         }
     }

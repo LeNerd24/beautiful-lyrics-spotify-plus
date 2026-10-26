@@ -1,14 +1,10 @@
-
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { CommonViewProps, createNativeComponent } from 'spotifyplus/react';
 import { SpotifyPlus } from 'spotifyplus';
 import Animated, { useAnimatedProps, useFrameCallback, useSharedValue } from 'spotifyplus/react/Animated';
 import { Sing, SingState } from '../Entities/sing';
 
-const NativeSingControl = Animated.createAnimatedComponent(createNativeComponent<CommonViewProps & {
-    controlsVisible: boolean; reducedMotion: boolean;
-    iconAnimation?: readonly number[];
-}>('LyricsSingControl'));
+const NativeSingControl = Animated.createAnimatedComponent(createNativeComponent<CommonViewProps & { controlsVisible: boolean; reducedMotion: boolean; iconAnimation?: readonly number[]; }>('LyricsSingControl'));
 
 export function SingControl({ visible, reducedMotion, onHold, onRelease }: { visible: boolean; reducedMotion: boolean; onHold: () => void; onRelease: () => void; }) {
     const [active, setActive] = useState(false);

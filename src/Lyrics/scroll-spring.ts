@@ -4,12 +4,7 @@ export type ScrollSpring = {
     damping: number
 };
 
-export type SpringMotion = ScrollSpring & {
-    from: number;
-    to: number;
-    velocity: number;
-    start: number
-};
+export type SpringMotion = ScrollSpring & { from: number; to: number; velocity: number; start: number };
 
 export function scrollSpring(intervalMs: number | undefined, seeking: boolean, interlude: boolean): ScrollSpring {
     'worklet';

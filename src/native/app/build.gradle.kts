@@ -5,6 +5,7 @@ plugins {
 android {
     namespace = "com.lenerd.lyricsnative"
     compileSdk = 35
+    ndkVersion = "27.0.12077973"
 
     defaultConfig {
         applicationId = "com.lenerd.lyricsnative"
@@ -26,6 +27,7 @@ android {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
     }
+    externalNativeBuild { cmake { path = file("src/main/cpp/CMakeLists.txt"); version = "3.22.1" } }
     androidResources { noCompress += "onnx" }
     packaging { jniLibs { useLegacyPackaging = true } }
 }

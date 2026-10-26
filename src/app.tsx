@@ -1,9 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { CommonViewProps, Image, createNativeComponent, Text, View } from 'spotifyplus/react';
 import Animated, { measure, useAnimatedStyle, useFrameCallback, usePlaybackClock, useReducedMotion, useSharedValue, withTiming } from 'spotifyplus/react/Animated';
 import { SpotifyTrack } from 'spotifyplus/entities';
 import { ExtensionSetting, SpotifyPlus } from 'spotifyplus';
-import { TransformedLyrics, transformLyrics } from './Lyrics/lyric-utilities';
+import { createLyricsTransformer, TransformedLyrics, transformLyrics } from './Lyrics/lyric-utilities';
 import LyricsView from './Lyrics/lyrics-view';
 import LyricsSkeleton from './Components/lyrics-skeleton';
 import { AnimationStyle } from './Entities/animation-style';
@@ -13,15 +13,22 @@ import { nativeFadeStyle } from './Components/native-fade';
 import { GestureDetector } from 'spotifyplus/react/Gesture';
 import { SingControl } from './Components/sing-control';
 import TranslationMenu from './Components/translation-menu';
-import { useLyricsSettings } from './settings';
+import { useAutoGenerate, useLyricsSettings } from './settings';
 import { sameLanguage, supportsPronunciation, targetLanguage } from './Lyrics/languages';
 import { useTranslation } from './Lyrics/use-translation';
+import { generationStore, setGenerationSource, startGeneration } from './Lyrics/generation-state';
+import { TrackGenerationProgress } from './Components/generation-progress';
+
+const AUTO_GENERATE_DELAY_MS = 5000;
 
 const AnimatedBackground = createNativeComponent<CommonViewProps & { imageUrl?: string }>('AnimatedBackground');
 
 const App = ({ headerRef, headerGesture }: { headerRef?: React.RefObject<View | null>; headerGesture?: React.ComponentProps<typeof GestureDetector>['gesture'] } = {}) => {
-    const [lyrics, setLyrics] = useState<TransformedLyrics>();
+    const [loadedLyrics, setLoadedLyrics] = useState<TransformedLyrics>();
     const [track, setTrack] = useState<SpotifyTrack>();
+    const generationLyrics = useSyncExternalStore(generationStore.subscribe, () => generationStore.getLyrics(track?.id));
+    const transformGeneration = useMemo(() => createLyricsTransformer(), []);
+    const lyrics = useMemo(() => generationLyrics ? transformGeneration(generationLyrics) : loadedLyrics, [generationLyrics, loadedLyrics, transformGeneration]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string>();
     const [songRevision, setSongRevision] = useState(0);
@@ -30,15 +37,16 @@ const App = ({ headerRef, headerGesture }: { headerRef?: React.RefObject<View | 
     const [animationStyle, setAnimationStyle] = useState<AnimationStyle>(() => SpotifyPlus.Platform.Storage.get('lyrics-animation-style') === 'apple' ? 'apple' : 'beautiful');
     const [controlsVisible, setControlsVisible] = useState(paused);
     const translationSettings = useLyricsSettings();
+    const autoGenerate = useAutoGenerate();
     let target: string | undefined;
 
     try {
         target = targetLanguage(translationSettings.translationLanguage);
-    }
-    catch (_) { }
+    } catch (_) { }
 
     const translated = useTranslation(lyrics, target);
-    const canTranslate = !!lyrics && (!target || !sameLanguage(lyrics.language, target));
+    const presentation = useMemo(() => ({ ...translationSettings, translation: translated.translation, pronunciation: translated.pronunciation }), [translationSettings, translated.translation, translated.pronunciation]);
+    const canTranslate = !!lyrics && !(lyrics.Type === 'Syllable' && lyrics.Partial) && (!target || !sameLanguage(lyrics.language, target));
 
     const likedRef = useRef(false);
     const panel = useRef<View | null>(null);
@@ -107,7 +115,7 @@ const App = ({ headerRef, headerGesture }: { headerRef?: React.RefObject<View | 
         let cancelled = false;
 
         const loadLyrics = async () => {
-            setLoading(true); setError(undefined); setLyrics(undefined);
+            setLoading(true); setError(undefined); setLoadedLyrics(undefined);
 
             try {
                 const current = SpotifyPlus.Player.getCurrentTrack();
@@ -117,8 +125,7 @@ const App = ({ headerRef, headerGesture }: { headerRef?: React.RefObject<View | 
 
                 try {
                     updateLiked(SpotifyPlus.Library.isLiked(current));
-                }
-                catch (e) {
+                } catch (e) {
                     console.log('Could not read liked state', String(e)); updateLiked(false);
                 }
 
@@ -126,7 +133,10 @@ const App = ({ headerRef, headerGesture }: { headerRef?: React.RefObject<View | 
                 if (!response.ok) throw new Error('Lyrics are unavailable for this song');
 
                 const transformed = transformLyrics(await response.json() as any);
-                if (!cancelled) setLyrics(transformed);
+                if (cancelled) return;
+
+                setGenerationSource(current.id, transformed);
+                setLoadedLyrics(transformed);
             } catch (e) {
                 if (!cancelled) setError((e as Error).message);
             } finally {
@@ -138,6 +148,31 @@ const App = ({ headerRef, headerGesture }: { headerRef?: React.RefObject<View | 
 
         return () => { cancelled = true; };
     }, [songRevision, updateLiked]);
+
+    useEffect(() => {
+        const trackId = track?.id;
+        if (!autoGenerate || !trackId || loadedLyrics?.Type !== 'Line' || generationStore.get(trackId)) return;
+
+        let unsubscribe: (() => void) | undefined;
+
+        const attempt = () => {
+            if (SpotifyPlus.Player.getCurrentTrack()?.id !== trackId || generationStore.get(trackId)) return unsubscribe?.();
+            if (generationStore.busy()) return;
+
+            unsubscribe?.();
+            startGeneration(trackId);
+        };
+
+        const timer = setTimeout(() => {
+            unsubscribe = generationStore.subscribe(attempt);
+            attempt();
+        }, AUTO_GENERATE_DELAY_MS);
+
+        return () => {
+            clearTimeout(timer);
+            unsubscribe?.();
+        };
+    }, [autoGenerate, track?.id, loadedLyrics]);
 
     useFrameCallback(useCallback(frame => {
         'worklet';
@@ -173,15 +208,13 @@ const App = ({ headerRef, headerGesture }: { headerRef?: React.RefObject<View | 
     const openContextMenu = async () => {
         try {
             await SpotifyPlus.ContextMenu.openNowPlaying();
-        }
-        catch (e) {
+        } catch (e) {
             if (track) {
-                try { await SpotifyPlus.ContextMenu.open(track); }
-                catch (_) { SpotifyPlus.toast('Could not open the song menu'); }
+                try { await SpotifyPlus.ContextMenu.open(track); } catch (_) { SpotifyPlus.toast('Could not open the song menu'); }
             }
         } finally {
             if (track) {
-                try { updateLiked(SpotifyPlus.Library.isLiked(track)); } catch (_) { /* Refresh on the next song change. */ }
+                try { updateLiked(SpotifyPlus.Library.isLiked(track)); } catch (_) { }
             }
         }
     };
@@ -215,11 +248,13 @@ const App = ({ headerRef, headerGesture }: { headerRef?: React.RefObject<View | 
 
             {headerGesture ? <GestureDetector gesture={headerGesture}>{header}</GestureDetector> : header}
 
+            <TrackGenerationProgress trackId={track?.id} />
+
             <View style={{ flex: 1, position: 'relative' }}>
                 <View ref={densityProbe} pointerEvents='none' style={{ position: 'absolute', top: 0, width: 100, height: 0 }} />
 
                 {lyrics ? (
-                    <LyricsView lyrics={translated.lyrics} presentation={{ ...translationSettings, translation: translated.translation, pronunciation: translated.pronunciation }} animationStyle={animationStyle} controlsShown={controlsShown} controlsOpacity={controlsOpacity} controlsHeight={controlsHeight} onRevealControls={revealControls} onInteractionStart={holdControls} onInteractionEnd={releaseControls} onSeekInteraction={seekInteraction} />)
+                    <LyricsView key={`${track?.id}:${generationLyrics?.GenerationId ?? 'provider'}`} lyrics={translated.lyrics} presentation={presentation} animationStyle={animationStyle} controlsShown={controlsShown} controlsOpacity={controlsOpacity} controlsHeight={controlsHeight} onRevealControls={revealControls} onInteractionStart={holdControls} onInteractionEnd={releaseControls} onSeekInteraction={seekInteraction} />)
                     : <View onPress={revealControls} style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 28 }}>
                         {loading ? <LyricsSkeleton /> : <Text style={{ fontSize: 18, color: '#BFFFFFFF' }}>{error}</Text>}
                     </View>}

@@ -1,26 +1,21 @@
 import { createWorkletSpring, updateWorkletSpring } from './spring';
 
-// Curves/physics are prepared on the script thread. Android only interpolates
-// two adjacent samples and applies visual properties at the display's cadence.
-export type MotionSample = readonly [progress: number, radius: number, glow: number,
-    y: number, scale: number, opacity: number];
+export type MotionSample = readonly [progress: number, radius: number, glow: number, y: number, scale: number, opacity: number];
 export type MotionTrack = { startMs: number; stepMs: number; samples: string; hideAfterMs?: number; beforeOpacity?: number };
 export const SAMPLE_STEP_MS = 1000 / 120;
+const littleEndian = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;
 
-export function sampleMotion(startMs: number, durationMs: number,
-    sample: (elapsedSeconds: number, index: number) => MotionSample): MotionTrack {
+export function sampleMotion(startMs: number, durationMs: number, sample: (elapsedSeconds: number, index: number) => MotionSample): MotionTrack {
     const count = Math.ceil(Math.max(0, durationMs) / SAMPLE_STEP_MS) + 1;
     const data = new Float32Array(count * 6);
     for (let index = 0; index < count; index += 1) data.set(sample(index / 120, index), index * 6);
-    // Binary samples avoid parsing thousands of JSON numbers on the UI thread.
-    const bytes = Buffer.allocUnsafe(data.byteLength);
-    for (let index = 0; index < data.length; index += 1) bytes.writeFloatLE(data[index], index * 4);
+
+    const bytes = littleEndian ? Buffer.from(data.buffer, data.byteOffset, data.byteLength) : Buffer.allocUnsafe(data.byteLength);
+    if (!littleEndian) for (let index = 0; index < data.length; index += 1) bytes.writeFloatLE(data[index], index * 4);
     return { startMs, stepMs: SAMPLE_STEP_MS, samples: bytes.toString('base64') };
 }
 
-export function springSamples(durationMs: number,
-    targets: (elapsedSeconds: number) => readonly [number, number, number],
-    render: (elapsedSeconds: number, scale: number, y: number, glow: number) => MotionSample): MotionTrack {
+export function springSamples(durationMs: number, targets: (elapsedSeconds: number) => readonly [number, number, number], render: (elapsedSeconds: number, scale: number, y: number, glow: number) => MotionSample): MotionTrack {
     const initial = targets(0);
     const scale = createWorkletSpring(initial[0]);
     const y = createWorkletSpring(initial[1]);

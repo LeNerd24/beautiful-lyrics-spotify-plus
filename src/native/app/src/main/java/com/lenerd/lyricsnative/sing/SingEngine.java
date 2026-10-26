@@ -1,4 +1,3 @@
-
 package com.lenerd.lyricsnative.sing;
 
 import android.media.AudioTrack;
@@ -12,7 +11,6 @@ import com.lenerd.spotifyplus.sdk.hooks.*;
 import com.lenerd.spotifyplus.sdk.spotify.SpotifyPlusContext;
 
 import java.lang.reflect.Method;
-import java.io.ByteArrayOutputStream;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -40,7 +38,7 @@ public final class SingEngine implements SpotifyPlusPlugin {
     private AudioTrack boundTrack;
     private int originalStartThreshold;
     private boolean endDelivered;
-    private volatile String status = "Loading vocal model…";
+    private volatile String status = "Loading vocal model";
     private volatile double inferenceMs;
     private volatile long windows;
     private Method write, end, queued, position, getTrack, progress;
@@ -69,16 +67,8 @@ public final class SingEngine implements SpotifyPlusPlugin {
         worker.execute(() -> {
             VocalSeparator loaded = null;
 
-            try (var stream = SingEngine.class.getClassLoader().getResourceAsStream("assets/models/vocals.onnx")) {
-                if (stream == null) throw new IllegalStateException("Bundled vocal model missing");
-
-                ByteArrayOutputStream model = new ByteArrayOutputStream();
-                byte[] block = new byte[16384];
-                int count;
-
-                while ((count = stream.read(block)) != -1) model.write(block, 0, count);
-
-                loaded = new VocalSeparator(model.toByteArray());
+            try {
+                loaded = new VocalSeparator(VocalSeparator.bundledModel());
                 long started = System.nanoTime();
                 float[][] tone = new float[2][SpectralTransform.SAMPLES];
 
@@ -179,7 +169,7 @@ public final class SingEngine implements SpotifyPlusPlugin {
             }
         });
 
-        for (String name : new String[] { "flush", "destroy" }) {
+        for (String name : new String[] {"flush", "destroy"}) {
             hooks.before(hooks.findMethod(type, name), call -> {
                 if (call.getThisObject() == driver) reset();
             });

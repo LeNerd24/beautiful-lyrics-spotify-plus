@@ -1,4 +1,3 @@
-
 package com.lenerd.lyricsnative;
 
 import android.annotation.SuppressLint;
@@ -26,7 +25,7 @@ public class GradientTextView extends TextView implements MotionTarget {
     private LinearGradient activeShader, idleShader, sungShader;
     private float shaderWidth;
     private boolean colorsDirty = true;
-    private int[] gradientColors = { 0xFFFFFFFF, 0xE6FFFFFF };
+    private int[] gradientColors = {0xFFFFFFFF, 0xE6FFFFFF};
     private float progress = 0f;
     private float shadowOpacity = 0f;
     private float shadowRadius = 0f;

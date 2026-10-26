@@ -1,8 +1,9 @@
 import { franc } from 'franc';
-import { Lyrics, TextMetadata } from '../Types/lyrics-types';
+import { Lyrics, SyllableSyncedLyrics, TextMetadata } from '../Types/lyrics-types';
 import { localRomanization } from './romanization';
 import { lyricText } from './word-alignment';
 import { cloneLyrics } from './platform-utils';
+import { createVocalGrouper } from './vocal-grouping';
 
 type NaturalAlignment = 'right' | 'left';
 type RomanizedLanguage = 'chinese' | 'japanese' | 'korean' | 'none';
@@ -13,27 +14,23 @@ type BaseInformation = {
 }
 
 export type TransformedLyrics = (BaseInformation & Lyrics);
+type TransformedSyllableLyrics = BaseInformation & SyllableSyncedLyrics;
 
 const rightToLeftLanguages = [
-    // Persian
+
     'pes', 'urd',
 
-    // Arabic
     'arb', 'uig',
 
-    // Hebrew
     'heb', 'ydd',
 
-    // Mende
     'men'
 ];
 
-const minimumInterludeDuration: number = 4;
-const endInterludeEarly: number = 0.25;
+export const minimumInterludeDuration: number = 4;
+export const endInterludeEarly: number = 0.25;
 
-const getNaturalAlignment = (language: string): NaturalAlignment => {
-    return rightToLeftLanguages.includes(language) ? 'right' : 'left';
-}
+const getNaturalAlignment = (language: string): NaturalAlignment => { return rightToLeftLanguages.includes(language) ? 'right' : 'left'; }
 
 const generateRomanization = <L extends TextMetadata>(metadata: L, information: BaseInformation): void => {
     metadata.RomanizedText = localRomanization(metadata.Text, information.language);
@@ -41,9 +38,90 @@ const generateRomanization = <L extends TextMetadata>(metadata: L, information: 
     if (information.language === 'cmn') information.romanizedLanguage = 'chinese';
     if (information.language === 'jpn') information.romanizedLanguage = 'japanese';
 };
+
+const applyLyricOffset = (lyrics: Lyrics): void => {
+    const offset = lyrics.LyricOffset;
+    delete lyrics.LyricOffset;
+    if (lyrics.Type === 'Static' || !offset || !Number.isFinite(offset)) return;
+
+    const shift = (timed: { StartTime: number; EndTime: number }) => {
+        timed.StartTime = Math.max(0, timed.StartTime + offset);
+        timed.EndTime = Math.max(0, timed.EndTime + offset);
+    };
+
+    shift(lyrics);
+
+    if (lyrics.Type === 'Line') {
+        for (const vocal of lyrics.Content) shift(vocal);
+        return;
+    }
+
+    for (const vocalGroup of lyrics.Content) {
+        if (vocalGroup.Type !== 'Vocal') {
+            shift(vocalGroup);
+            continue;
+        }
+
+        for (const vocal of [vocalGroup.Lead, ...(vocalGroup.Background ?? [])]) {
+            shift(vocal);
+            for (const syllable of vocal.Syllables) shift(syllable);
+        }
+    }
+};
+
+export function createLyricsTransformer() {
+    const groupVocals = createVocalGrouper();
+    let previousInput: SyllableSyncedLyrics | undefined;
+    let previousSource: SyllableSyncedLyrics | undefined;
+    let previousResult: TransformedSyllableLyrics | undefined;
+
+    return (source: SyllableSyncedLyrics): TransformedSyllableLyrics => {
+        if (source === previousInput && previousResult) return previousResult;
+        const input = source;
+        const content = groupVocals(source.Content);
+        if (content !== source.Content) source = { ...source, Content: content };
+        if (!source.GenerationId || source.GenerationId !== previousSource?.GenerationId || !previousResult || previousSource.Content.length !== source.Content.length) {
+            const result = transformLyrics(source) as TransformedSyllableLyrics;
+            previousInput = input;
+            previousSource = source;
+            previousResult = result;
+            return result;
+        }
+
+        const previous = previousResult;
+        const information: BaseInformation = { language: previous.language, naturalAlignment: previous.naturalAlignment, romanizedLanguage: previous.romanizedLanguage };
+        const transformedContent = source.Content.map((line, index) => {
+            if (line === previousSource!.Content[index]) return previous.Content[index];
+            const copy = cloneLyrics(line);
+            if (copy.Type === 'Vocal') {
+                const before = previousSource!.Content[index], result = previous.Content[index];
+                const transformVocal = (vocal: typeof copy.Lead, original: typeof copy.Lead, oldSource?: typeof copy.Lead, oldResult?: typeof copy.Lead) => {
+                    if (original === oldSource && oldResult) return oldResult;
+                    for (const syllable of vocal.Syllables) generateRomanization(syllable, information);
+                    return vocal;
+                };
+                if (line.Type === 'Vocal' && before.Type === 'Vocal' && result.Type === 'Vocal') {
+                    copy.Lead = transformVocal(copy.Lead, line.Lead, before.Lead, result.Lead);
+                    copy.Background = copy.Background?.map((vocal, i) => transformVocal(vocal, line.Background![i], before.Background?.[i], result.Background?.[i]));
+                } else {
+                    for (const vocal of [copy.Lead, ...(copy.Background ?? [])]) transformVocal(vocal, vocal);
+                }
+            }
+            return copy;
+        });
+        const unchanged = transformedContent.every((line, index) => line === previous.Content[index]);
+        previousInput = input;
+        previousSource = source;
+        previousResult = { ...source, ...information, Content: unchanged ? previous.Content : transformedContent };
+        return previousResult;
+    };
+}
+
 export const transformLyrics = (providerLyrics: Lyrics): TransformedLyrics => {
     if (!providerLyrics || !['Static', 'Line', 'Syllable'].includes(providerLyrics.Type)) throw new Error('No lyrics available for this song.');
     const lyrics = cloneLyrics(providerLyrics) as TransformedLyrics;
+    applyLyricOffset(lyrics);
+    if (lyrics.Type === 'Syllable') lyrics.Content = createVocalGrouper()(lyrics.Content);
 
     if (lyrics.Type === 'Static') {
         let textToProcess = lyrics.Lines[0]?.Text ?? '';
@@ -109,7 +187,7 @@ export const transformLyrics = (providerLyrics: Lyrics): TransformedLyrics => {
         }
     }
 
-    if (lyrics.Type === 'Static') return lyrics;
+    if (lyrics.Type === 'Static' || lyrics.Type === 'Syllable' && lyrics.GenerationId) return lyrics;
 
     const vocalTimes: {
         startTime: number;

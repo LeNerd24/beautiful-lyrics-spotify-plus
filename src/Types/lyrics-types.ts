@@ -14,46 +14,32 @@ export type TextMetadata = {
 type VocalMetadata = (TimeMetadata & TextMetadata);
 
 export type Interlude = (
-    TimeMetadata & {
-        Type: 'Interlude'
-    }
+    TimeMetadata & { Type: 'Interlude' }
 );
 
 export type StaticSyncedLyrics = {
     Type: 'Static',
     SongWriters: string[],
+    LyricOffset?: number,
+    source?: string,
     Lines: TextMetadata[]
 };
 
 export type LineVocal = (
-    VocalMetadata & {
-        Type: 'Vocal',
-        OppositeAligned: boolean;
-    }
+    VocalMetadata & { Type: 'Vocal', OppositeAligned: boolean; }
 );
 
 export type LineSyncedLyrics = (
-    TimeMetadata & {
-        Type: 'Line',
-        SongWriters?: string[],
-        Content: (LineVocal | Interlude)[]
-    }
+    TimeMetadata & { Type: 'Line', SongWriters?: string[], LyricOffset?: number, source?: string, Content: (LineVocal | Interlude)[] }
 );
 
 export type SyllableMetadata = (
-    VocalMetadata & {
-        IsPartOfWord: boolean;
-        Emphasized?: boolean;
-    }
+    VocalMetadata & { IsPartOfWord: boolean; Emphasized?: boolean; }
 );
 
 export type SyllableList = SyllableMetadata[];
 export type SyllableVocal = (
-    TimeMetadata & {
-        Syllables: SyllableList;
-        Pronunciation?: SyllableList;
-        Translation?: SyllableList;
-    }
+    TimeMetadata & { Syllables: SyllableList; Pending?: boolean; Pronunciation?: SyllableList; Translation?: SyllableList; }
 );
 
 export type SyllableVocalSet = {
@@ -61,14 +47,11 @@ export type SyllableVocalSet = {
     OppositeAligned: boolean;
     Lead: SyllableVocal;
     Background?: SyllableVocal[];
+    Pending?: boolean;
 };
 
 export type SyllableSyncedLyrics = (
-    TimeMetadata & {
-        Type: 'Syllable',
-        SongWriters: string[],
-        Content: (SyllableVocalSet | Interlude)[]
-    }
+    TimeMetadata & { Type: 'Syllable', Partial?: boolean; GenerationId?: string; ai?: boolean; SongWriters: string[], LyricOffset?: number, source?: string, Content: (SyllableVocalSet | Interlude)[] }
 );
 
 export type Lyrics = (StaticSyncedLyrics | LineSyncedLyrics | SyllableSyncedLyrics);

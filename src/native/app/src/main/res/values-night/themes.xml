@@ -1,1 +1,3 @@
-<resources><style name="Theme.Native" parent="android:style/Theme.Material.NoActionBar" /></resources>
+<resources>
+    <style name="Theme.Native" parent="android:style/Theme.Material.NoActionBar" />
+</resources>

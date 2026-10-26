@@ -11,8 +11,7 @@ export class ControlsVisibility {
     private holds = 0;
     private timer: ReturnType<typeof setTimeout> | undefined;
 
-    constructor(private paused: boolean, private changed: (visible: boolean) => void,
-        private clock: ControlsClock = { setTimeout, clearTimeout }) {
+    constructor(private paused: boolean, private changed: (visible: boolean) => void, private clock: ControlsClock = { setTimeout, clearTimeout }) {
         this.visible = paused;
     }
 

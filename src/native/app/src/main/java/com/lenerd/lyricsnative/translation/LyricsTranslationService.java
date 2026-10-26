@@ -1,4 +1,3 @@
-
 package com.lenerd.lyricsnative.translation;
 
 import com.google.gson.JsonArray;

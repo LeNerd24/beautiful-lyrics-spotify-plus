@@ -1,5 +1,9 @@
 import { ExtensionSetting, SpotifyPlus } from 'spotifyplus';
-import { LyricsOpenTrigger, LyricsOverlay } from './Components/lyrics-overlay';
+import { isLyricsOpen, LyricsOpenTrigger, LyricsOverlay, openLyrics } from './Components/lyrics-overlay';
+import { canGenerate, GenerationBegin, GenerationLine, GenerationProgress, GenerationResult, generationStore, startGeneration } from './Lyrics/generation-state';
+
+const sparkles = SpotifyPlus.Assets.image('assets/images/sparkles.png');
+const musicNote = SpotifyPlus.Assets.image('assets/images/music-note.png');
 
 const animationSetting: Extract<ExtensionSetting, { type: 'select' }> = {
     id: 'lyrics-animation-style',
@@ -19,7 +23,6 @@ SpotifyPlus.on('settings.changed', (payload: unknown) => {
         animationSetting.value = setting.value === 'apple' ? 'apple' : 'beautiful';
         SpotifyPlus.Platform.Storage.set(setting.id, animationSetting.value);
     }
-
 });
 
 const toggleAnimationStyle = () => {
@@ -32,6 +35,42 @@ const toggleAnimationStyle = () => {
 
 new SpotifyPlus.ContextMenu('Beautiful Lyrics', toggleAnimationStyle, () => animationSetting.value !== 'apple', false, 'track').register();
 new SpotifyPlus.ContextMenu('Apple Music', toggleAnimationStyle, () => animationSetting.value === 'apple', false, 'track').register();
+
+let lastGenerationStage = '';
+
+SpotifyPlus.Events.on('lyrics.generate.begin', (payload: unknown) => generationStore.begin(payload as GenerationBegin));
+SpotifyPlus.Events.on('lyrics.generate.line', (payload: unknown) => generationStore.line(payload as GenerationLine));
+
+SpotifyPlus.Events.on('lyrics.generate.progress', (payload: unknown) => {
+    generationStore.progress(payload as GenerationProgress);
+    const { trackId, stage, message } = payload as GenerationProgress;
+    if (`${trackId}:${stage}` === lastGenerationStage) return;
+
+    lastGenerationStage = `${trackId}:${stage}`;
+    SpotifyPlus.toast(message);
+});
+
+SpotifyPlus.Events.on('lyrics.generate.result', (payload: unknown) => {
+    const result = payload as GenerationResult;
+    generationStore.result(result);
+    lastGenerationStage = '';
+    SpotifyPlus.toast(result.status === 'complete' ? 'Lyrics are ready!' : result.error ?? 'Could not generate lyrics', 'long');
+});
+
+new SpotifyPlus.ContextMenu('Generate Lyrics', (uri) => {
+    const trackId = /^spotify:track:([A-Za-z0-9]{22})$/.exec(uri)?.[1];
+    if (!trackId) return SpotifyPlus.toast('Lyrics can only be generated for Spotify tracks');
+    if (!isLyricsOpen() || generationStore.busy() || SpotifyPlus.Player.getCurrentTrack()?.id !== trackId || !canGenerate(trackId)) return;
+
+    startGeneration(trackId);
+}, (uri) => {
+    const track = SpotifyPlus.Player.getCurrentTrack();
+    return isLyricsOpen() && !generationStore.busy() && !!track && uri === track.uri && canGenerate(track.id);
+}, false, 'track', sparkles).register();
+
+new SpotifyPlus.ContextMenu('Open Lyrics', (uri) => {
+    if (uri === SpotifyPlus.Player.getCurrentTrack()?.uri) openLyrics();
+}, (uri) => !isLyricsOpen() && uri === SpotifyPlus.Player.getCurrentTrack()?.uri, false, 'track', musicNote).register();
 
 SpotifyPlus.UI.overlay('nowPlaying.page', LyricsOverlay);
 SpotifyPlus.UI.replace('lyrics.page', LyricsOpenTrigger);

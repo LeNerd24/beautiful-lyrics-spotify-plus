@@ -1,4 +1,3 @@
-
 package com.lenerd.lyricsnative.sing;
 
 import android.animation.Animator;
@@ -56,7 +55,7 @@ public final class SingControl extends SpotifyPlusComponent<SingControl.ControlV
         final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
         final RectF bounds = new RectF();
         final Path microphone, sparkle;
-        final float[] iconAnimation = { 1, 1, 1, 1, 1, 1, 1, 0, 0, 0 };
+        final float[] iconAnimation = {1, 1, 1, 1, 1, 1, 1, 0, 0, 0};
 
         boolean controlsVisible = true, reducedMotion, expanded, touching, openingTouch, holding;
         float expansion;

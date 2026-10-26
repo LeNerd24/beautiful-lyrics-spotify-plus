@@ -7,6 +7,7 @@ import ScrollingLyrics from './scrolling-lyrics';
 import { AnimationStyle } from '../Entities/animation-style';
 import { LyricsInteractionProps, LyricsViewport } from '../Components/player-chrome';
 import { LyricsPresentation, linePresentation } from './presentation';
+import LyricsCredits from '../Components/lyrics-credits';
 
 interface Props extends LyricsInteractionProps {
     lyrics: TransformedLyrics | undefined;
@@ -50,17 +51,18 @@ const StaticLyrics = ({ lyrics, controlsOpacity, controlsHeight, onRevealControl
                         {display.pronunciation && <Text style={{ fontFamily: LyricsFontFamily, fontSize: 18, color: '#BFFFFFFF', marginTop: 3 }}>{display.pronunciation}</Text>}
                     </View>;
                 })}
+
+                <LyricsCredits lyrics={lyrics} style={{ paddingHorizontal: 28, paddingTop: 28, paddingBottom: 48 }} />
             </ScrollView>
         </LyricsViewport>);
 };
 
 const SyncedLyricsView = ({ lyrics, ...props }: React.ComponentProps<typeof ScrollingLyrics>) => {
-    const [identity, setIdentity] = useState({ lyrics, generation: 0 });
-    if (identity.lyrics !== lyrics) {
-        setIdentity({ lyrics, generation: identity.generation + 1 });
-    }
+    const source = lyrics.Type === 'Syllable' && lyrics.GenerationId ? lyrics.GenerationId : lyrics;
+    const [identity, setIdentity] = useState({ source, generation: 0 });
+    if (identity.source !== source) setIdentity({ source, generation: identity.generation + 1 });
 
     return <ScrollingLyrics key={identity.generation} lyrics={lyrics} {...props} />;
 };
 
-export default LyricsView;
+export default React.memo(LyricsView);

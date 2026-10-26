@@ -1,4 +1,3 @@
-
 package com.lenerd.lyricsnative.sing;
 
 import org.jtransforms.fft.FloatFFT_1D;

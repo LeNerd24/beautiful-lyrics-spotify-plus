@@ -1,8 +1,3 @@
-/*
-* LegacySpring.ts from beautiful-lyrics by surfbryce
-* https://github.com/surfbryce/beautiful-lyrics/blob/main/Universal/Modules/LegacySpring.ts
-*/
-
 const Epsilon = 1e-4
 const Pi = Math.PI
 const Tau = (Pi * 2)
@@ -202,9 +197,7 @@ class Spring {
         this.DampingRatio = value
     }
 
-    public IsSleeping(): boolean {
-        return this.Sleeping
-    }
+    public IsSleeping(): boolean { return this.Sleeping }
 }
 
 export default Spring

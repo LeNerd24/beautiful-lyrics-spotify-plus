@@ -15,6 +15,15 @@ export type LineRange = {
     previousEnd: number
 };
 
+export function reconcileRanges(previous: LineRange[], next: LineRange[]): LineRange[] {
+    const byIndex = new Map(previous.map(range => [range.index, range]));
+    const result = next.map(range => {
+        const old = byIndex.get(range.index);
+        return old && old.start === range.start && old.end === range.end && old.previousEnd === range.previousEnd ? old : range;
+    });
+    return result.length === previous.length && result.every((range, index) => range === previous[index]) ? previous : result;
+}
+
 export type ScrollLayout = {
     tops: number[];
     heights: number[];
@@ -129,9 +138,7 @@ export function canFollowLine(layout: ScrollLayout, previousIndex: number, nextI
     if (touching || dragging || momentum) return false;
     if (force || !suspended) return true;
 
-    return idleMs >= FOLLOW_RESUME_MS && (
-        isLineVisible(layout, previousIndex, offset) || isLineVisible(layout, nextIndex, offset)
-    );
+    return idleMs >= FOLLOW_RESUME_MS && (isLineVisible(layout, previousIndex, offset) || isLineVisible(layout, nextIndex, offset));
 }
 
 export function lineScrollOffset(layout: ScrollLayout, index: number): number {

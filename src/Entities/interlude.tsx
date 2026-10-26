@@ -102,17 +102,10 @@ interface DotProps {
     dotOpacitySamples: Samples;
 }
 
-const InterludeDot = ({ index, startMs, endMs, playbackMs, dotScaleSamples,
-    dotYOffsetSamples, dotGlowSamples, dotOpacitySamples }: DotProps) => {
+const InterludeDot = ({ index, startMs, endMs, playbackMs, dotScaleSamples, dotYOffsetSamples, dotGlowSamples, dotOpacitySamples }: DotProps) => {
     const dotStart = index * DotStep;
     const motionTrack = useMemo(() => ({
-        ...sampleMotion(
-            startMs + dotStart * (endMs - startMs),
-            dotScaleSamples.input[dotScaleSamples.input.length - 1] * 1000,
-            elapsed => [0, 0, Math.max(0, Math.min(1, sampleValue(dotGlowSamples, elapsed))),
-                sampleValue(dotYOffsetSamples, elapsed), sampleValue(dotScaleSamples, elapsed),
-                Math.max(0, Math.min(1, sampleValue(dotOpacitySamples, elapsed)))]
-        ), beforeOpacity: DotIdleOpacity
+        ...sampleMotion(startMs + dotStart * (endMs - startMs), dotScaleSamples.input[dotScaleSamples.input.length - 1] * 1000, elapsed => [0, 0, Math.max(0, Math.min(1, sampleValue(dotGlowSamples, elapsed))), sampleValue(dotYOffsetSamples, elapsed), sampleValue(dotScaleSamples, elapsed), Math.max(0, Math.min(1, sampleValue(dotOpacitySamples, elapsed)))]), beforeOpacity: DotIdleOpacity
     }), [startMs, endMs, dotStart, dotScaleSamples, dotYOffsetSamples, dotGlowSamples, dotOpacitySamples]);
 
     return (
@@ -134,9 +127,7 @@ const InterludeView = ({ metadata, playbackMs, oppositeAligned = false }: Props)
     const dotOpacitySamples = useMemo(() => sampleDotMotion(DotOpacitySpline, dotDuration, 1, 0.5, 1), [dotDuration]);
     const mainSamples = useMemo(() => createMainMotion(duration), [duration]);
     const motionTrack = useMemo(() => ({
-        ...sampleMotion(startMs, (duration + 5) * 1000, elapsed => [0, 0, 0,
-            sampleValue(mainSamples.yOffset, elapsed), sampleValue(mainSamples.scale, elapsed),
-            Math.sin(Math.max(0, Math.min(1, sampleValue(mainSamples.opacity, elapsed))) * Math.PI / 2)]),
+        ...sampleMotion(startMs, (duration + 5) * 1000, elapsed => [0, 0, 0, sampleValue(mainSamples.yOffset, elapsed), sampleValue(mainSamples.scale, elapsed), Math.sin(Math.max(0, Math.min(1, sampleValue(mainSamples.opacity, elapsed))) * Math.PI / 2)]),
         hideAfterMs: endMs + INTERLUDE_EXIT_MS, beforeOpacity: 0,
     }), [duration, endMs, mainSamples, startMs]);
 

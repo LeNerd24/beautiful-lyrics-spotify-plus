@@ -14,8 +14,7 @@ export function translateNative(lines: string[], target: string, signal: AbortSi
         const emitCancel = () => {
             try {
                 void Promise.resolve(SpotifyPlus.Events.emit('lyrics.translation.cancel', { requestId })).catch(() => { });
-            }
-            catch (_) { }
+            } catch (_) { }
         };
 
         const cleanup = () => {

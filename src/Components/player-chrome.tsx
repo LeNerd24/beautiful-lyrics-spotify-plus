@@ -15,17 +15,12 @@ export const LyricsInset = createNativeComponent<CommonViewProps & { edge: 'top'
 export const LyricsWindow = createNativeComponent<CommonViewProps>('LyricsWindow');
 export const LyricsSheetRoot = Animated.createAnimatedComponent(createNativeComponent<CommonViewProps & { headerHeight?: number }>('LyricsSheetRoot'));
 export const LyricsTitle = createNativeComponent<CommonViewProps & { text: string }>('LyricsTitle');
-export const LyricsViewport = Animated.createAnimatedComponent(createNativeComponent<CommonViewProps & {
-    controlsMask?: readonly [opacity: number, height: number];
-}>('LyricsViewport'));
+export const LyricsViewport = Animated.createAnimatedComponent(createNativeComponent<CommonViewProps & { controlsMask?: readonly [opacity: number, height: number]; }>('LyricsViewport'));
 
 const AnimatedSlider = Animated.createAnimatedComponent(createNativeComponent<SliderProps>('LyricsSeekBar'));
 const AnimatedText = Animated.createAnimatedComponent(Text);
 
-export function ChromeButton({ name, label, onPress, filled = false, compact = false, gesture }: {
-    name: React.ComponentProps<typeof LyricsIcon>['name']; label: string; onPress: () => void; filled?: boolean; compact?: boolean;
-    gesture?: React.ComponentProps<typeof GestureDetector>['gesture'];
-}) {
+export function ChromeButton({ name, label, onPress, filled = false, compact = false, gesture }: { name: React.ComponentProps<typeof LyricsIcon>['name']; label: string; onPress: () => void; filled?: boolean; compact?: boolean; gesture?: React.ComponentProps<typeof GestureDetector>['gesture']; }) {
     const button = (
         <TouchableOpacity accessibilityLabel={label} onPress={onPress} activeOpacity={0.6} style={{ width: compact ? 44 : 76, height: compact ? 44 : 72, justifyContent: 'center', alignItems: 'center' }}>
             <View style={{ width: compact ? 28 : 42, height: compact ? 28 : 42, borderRadius: compact ? 14 : 0, backgroundColor: compact ? '#26FFFFFF' : '#00FFFFFF', alignItems: 'center', justifyContent: 'center' }}>
@@ -67,8 +62,7 @@ export function PlayerControls({ playbackMs, durationMs, paused, onInteract, onH
                 onSlidingStart={value => { preview.value = value; scrubbing.value = true; onHold(); }}
                 onValueChange={value => { preview.value = value; }}
                 onSlidingComplete={value => {
-                    try { SpotifyPlus.Player.seek(value); }
-                    finally { scrubbing.value = false; onRelease(); }
+                    try { SpotifyPlus.Player.seek(value); } finally { scrubbing.value = false; onRelease(); }
                 }} />
 
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 1, marginTop: 0 }}>

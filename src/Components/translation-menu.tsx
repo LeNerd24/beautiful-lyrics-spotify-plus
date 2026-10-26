@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, Image, createNativeComponent, CommonViewProps, Text, View } from 'spotifyplus/react';
 import { SpotifyPlus, AndroidBackButtonEvent } from 'spotifyplus';
@@ -103,7 +102,7 @@ export default function TranslationMenu(props: Props) {
                 })}>
                 <TranslationIcon name={pronunciation ? 'subtitle' : 'globe'} />
                 <Text style={{ flex: 1, color: '#ffffff', fontSize: 17, marginLeft: 12 }}>
-                    {busy ? `Loading ${label.toLowerCase()}…` : `${active ? 'Hide' : 'Show'} ${label}`}
+                    {busy ? `Loading ${label.toLowerCase()}` : `${active ? 'Hide' : 'Show'} ${label}`}
                 </Text>
                 {active && <Text style={{ color: '#1ed760', fontSize: 20, marginLeft: 8 }}>✓</Text>}
             </Pressable>

@@ -6,7 +6,7 @@ final class MarqueeTiming {
 
         double travelMs = distance / pixelsPerSecond * 1000;
         double phase = Math.max(0, elapsedMs) % (pauseMs + travelMs);
-        
+
         return phase <= pauseMs ? 0 : (phase - pauseMs) / 1000 * pixelsPerSecond;
     }
 }

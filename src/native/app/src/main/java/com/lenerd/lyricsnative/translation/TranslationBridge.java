@@ -1,4 +1,3 @@
-
 package com.lenerd.lyricsnative.translation;
 
 import android.util.Log;
@@ -43,7 +42,8 @@ public final class TranslationBridge implements AutoCloseable {
         if (jobs.containsKey(id)) return;
 
         ArrayList<String> lines = new ArrayList<>();
-        for (int i = 0; i < input.length(); i++) if (input.opt(i) instanceof String line) lines.add(line);
+        for (int i = 0; i < input.length(); i++)
+            if (input.opt(i) instanceof String line) lines.add(line);
 
         LyricsTranslationService service = new LyricsTranslationService(data.optString("target", "en"));
         jobs.put(id, service);

@@ -1,4 +1,3 @@
-
 import { TransformedLyrics } from './lyric-utilities';
 import { SyllableList, SyllableVocal, TextMetadata } from '../Types/lyrics-types';
 import { alignTranslation, isEmphasized, lyricText, sourceWords, splitTimedText, SourceWord } from './word-alignment';

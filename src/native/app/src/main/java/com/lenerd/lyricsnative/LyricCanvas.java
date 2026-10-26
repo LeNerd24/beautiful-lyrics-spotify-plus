@@ -1,4 +1,3 @@
-
 package com.lenerd.lyricsnative;
 
 import android.app.Activity;

@@ -12,6 +12,8 @@ const subscribe = (listener: () => void) => {
 };
 
 const snapshot = () => opened;
+let mountedOverlays = 0;
+export const isLyricsOpen = () => opened && mountedOverlays > 0;
 const close = () => {
     opened = false;
 
@@ -19,6 +21,16 @@ const close = () => {
         listener();
     }
 };
+
+export function openLyrics() {
+    if (mountedOverlays === 0 && !SpotifyPlus.Navigation.open('spotify:now-playing', { target: 'spotify' })) {
+        SpotifyPlus.toast('Could not open the lyrics.');
+        return;
+    }
+
+    opened = true;
+    for (const listener of listeners) listener();
+}
 
 export function LyricsOpenTrigger({ context }: UIComponentProps) {
     useEffect(() => {
@@ -39,5 +51,9 @@ export function LyricsOpenTrigger({ context }: UIComponentProps) {
 
 export function LyricsOverlay() {
     const visible = useSyncExternalStore(subscribe, snapshot);
+    useEffect(() => {
+        mountedOverlays++;
+        return () => { mountedOverlays--; };
+    }, []);
     return visible ? <LyricsSheet onClosed={close} /> : null;
 }

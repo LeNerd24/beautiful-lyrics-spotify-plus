@@ -13,6 +13,7 @@ Beautiful Lyrics for Spotify Plus includes many features to make this the best l
 * 🍎 Both Beautiful Lyrics and Apple Music style animations
 * 🌐 Lyric translations and pronunciations
 * 🎤 Spotify Sing
+* ✨ Generate synced word by word lyrics for any song
 
 ## Installation
 

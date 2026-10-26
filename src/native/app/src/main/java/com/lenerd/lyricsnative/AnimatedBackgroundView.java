@@ -1,4 +1,3 @@
-
 package com.lenerd.lyricsnative;
 
 import android.content.Context;
@@ -167,12 +166,12 @@ public final class AnimatedBackgroundView extends View {
         }
     }
 
-    @Override 
+    @Override
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
-        if (h > 0) shade.setShader(new LinearGradient(0, 0, 0, h, new int[]{0x55000000, 0x77000000, 0xBB000000}, new float[]{0, 0.5f, 1}, Shader.TileMode.CLAMP));
+        if (h > 0) shade.setShader(new LinearGradient(0, 0, 0, h, new int[] {0x55000000, 0x77000000, 0xBB000000}, new float[] {0, 0.5f, 1}, Shader.TileMode.CLAMP));
     }
 
-    @Override 
+    @Override
     protected void onDraw(Canvas canvas) {
         long now = SystemClock.uptimeMillis();
 
@@ -228,7 +227,7 @@ public final class AnimatedBackgroundView extends View {
         paint.setAlpha(255);
     }
 
-    @Override 
+    @Override
     public void onVisibilityAggregated(boolean isVisible) {
         super.onVisibilityAggregated(isVisible);
 
@@ -241,7 +240,7 @@ public final class AnimatedBackgroundView extends View {
         if (visible) invalidate();
     }
 
-    @Override 
+    @Override
     protected void onDetachedFromWindow() {
         visible = false;
         lastFrame = 0;

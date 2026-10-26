@@ -1,4 +1,3 @@
-
 package com.lenerd.lyricsnative.sing;
 
 import java.util.Arrays;
@@ -92,7 +91,8 @@ public final class RealtimeBuffer {
             if (index >= captured) continue;
 
             int k = (int) (index % capacity);
-            if (inputTags[k] == index) for (int c = 0; c < 2; c++) pcm[c][i] = input[c][k];
+            if (inputTags[k] == index)
+                for (int c = 0; c < 2; c++) pcm[c][i] = input[c][k];
         }
 
         Window window = new Window(resample(pcm, SpectralTransform.SAMPLES), generation, nextWindow);

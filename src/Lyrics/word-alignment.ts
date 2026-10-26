@@ -1,4 +1,3 @@
-
 import { SyllableList, SyllableMetadata } from '../Types/lyrics-types';
 
 export interface SourceWord extends SyllableMetadata { offset: number; endOffset: number }
@@ -14,9 +13,7 @@ export function tokenize(text: string, language?: string): Token[] {
     if (typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function') {
         starts = Array.from(new Intl.Segmenter(language, { granularity: 'word' }).segment(text)).filter(s => s.isWordLike).map(s => s.index);
     } else {
-        const pattern = language?.startsWith('ja')
-            ? /[\u3400-\u9fff\uf900-\ufaff]+[\u3040-\u309f]*|[\u3040-\u30ff]+|[A-Za-z0-9\u00c0-\u02ff]+/g
-            : /[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]|[A-Za-z0-9\u00c0-\u02ff\u0370-\u052f\u0590-\u06ff\u0900-\u0e7f\u10a0-\u11ff\uac00-\ud7af]+(?:['’][A-Za-z\u00c0-\u02ff]+)*/g;
+        const pattern = language?.startsWith('ja') ? /[\u3400-\u9fff\uf900-\ufaff]+[\u3040-\u309f]*|[\u3040-\u30ff]+|[A-Za-z0-9\u00c0-\u02ff]+/g : /[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]|[A-Za-z0-9\u00c0-\u02ff\u0370-\u052f\u0590-\u06ff\u0900-\u0e7f\u10a0-\u11ff\uac00-\ud7af]+(?:['’][A-Za-z\u00c0-\u02ff]+)*/g;
 
         starts = Array.from(text.matchAll(pattern)).map(m => m.index!);
     }
@@ -33,9 +30,9 @@ export function tokenize(text: string, language?: string): Token[] {
     });
 }
 
-export function isEmphasized(s: SyllableMetadata): boolean {
-    return s.Emphasized ?? (s.EndTime - s.StartTime >= 1 && s.Text.length <= 12);
-}
+export function isEmphasized(s: SyllableMetadata): boolean { return s.Emphasized ?? qualifiesForEmphasis(s.Text, s.StartTime, s.EndTime); }
+
+const qualifiesForEmphasis = (text: string, start: number, end: number) => end - start >= 1 && text.length <= 12;
 
 export function sourceWords(syllables: SyllableList, language?: string): SourceWord[] {
     let offset = 0;
@@ -112,15 +109,16 @@ export function splitTimedText(text: string, source: SyllableMetadata, language?
     let elapsed = 0;
 
     return tokens.map((t, i) => {
-        const start = elapsed / total;
+        const from = source.StartTime + (source.EndTime - source.StartTime) * elapsed / total;
         elapsed += weights[i];
+        const to = source.StartTime + (source.EndTime - source.StartTime) * elapsed / total;
 
         return {
             Text: t.text,
             IsPartOfWord: t.joined,
-            Emphasized: isEmphasized(source),
-            StartTime: source.StartTime + (source.EndTime - source.StartTime) * start,
-            EndTime: source.StartTime + (source.EndTime - source.StartTime) * elapsed / total
+            Emphasized: isEmphasized(source) && qualifiesForEmphasis(t.text, from, to),
+            StartTime: from,
+            EndTime: to
         };
     });
 }
@@ -150,8 +148,7 @@ export function alignTranslation(text: string, words: SourceWord[], lexicon: Map
                 const parts = tokenize(translated, target).map(t => key(t.text)).filter(Boolean);
                 if (!parts.length) continue;
 
-                if (count > 1 && (parts.length !== 1 || words.slice(sourceStart, sourceStart + count).some(word =>
-                    (lexicon.get(word.Text) ?? []).some(value => key(value) === parts[0])))) continue;
+                if (count > 1 && (parts.length !== 1 || words.slice(sourceStart, sourceStart + count).some(word => (lexicon.get(word.Text) ?? []).some(value => key(value) === parts[0])))) continue;
 
                 for (let start = 0; start <= tokens.length - parts.length; start++) {
                     if (parts.every((part, i) => part === key(tokens[start + i].text))) {
@@ -174,8 +171,7 @@ export function alignTranslation(text: string, words: SourceWord[], lexicon: Map
     const sourceUsed = new Set<number>(), targetUsed = new Set<number>();
 
     for (const c of candidates) {
-        if (words.slice(c.sourceStart, c.sourceEnd + 1).some((_, i) => sourceUsed.has(c.sourceStart + i)) ||
-            tokens.slice(c.targetStart, c.targetEnd + 1).some((_, i) => targetUsed.has(c.targetStart + i))) continue;
+        if (words.slice(c.sourceStart, c.sourceEnd + 1).some((_, i) => sourceUsed.has(c.sourceStart + i)) || tokens.slice(c.targetStart, c.targetEnd + 1).some((_, i) => targetUsed.has(c.targetStart + i))) continue;
 
         accepted.push(c);
 
@@ -258,7 +254,7 @@ export function alignTranslation(text: string, words: SourceWord[], lexicon: Map
                 IsPartOfWord: token.joined,
                 StartTime: from,
                 EndTime: to,
-                Emphasized: source.some(w => w.Emphasized && w.StartTime < to && w.EndTime > from)
+                Emphasized: qualifiesForEmphasis(token.text, from, to) && source.some(w => w.Emphasized && w.StartTime < to && w.EndTime > from)
             });
         });
     }

@@ -1,4 +1,3 @@
-
 import { useEffect, useMemo, useState } from 'react';
 import { TransformedLyrics } from './lyric-utilities';
 import { addPronunciation, addTranslations } from './translation-service';
@@ -8,13 +7,13 @@ import { setLyricsPreference, useLyricsPreferences } from '../settings';
 
 interface Completed { source: TransformedLyrics; target?: string; lyrics: TransformedLyrics }
 
-const errorMessage = (error: unknown, fallback: string) => error && typeof error === 'object' &&
-    'message' in error && typeof error.message === 'string' ? error.message : fallback;
+const errorMessage = (error: unknown, fallback: string) => error && typeof error === 'object' && 'message' in error && typeof error.message === 'string' ? error.message : fallback;
 
 export function useTranslation(source: TransformedLyrics | undefined, target: string | undefined) {
     const preferences = useLyricsPreferences();
-    const translation = preferences.translation && !!source && !!target && !sameLanguage(source.language, target);
-    const pronunciation = preferences.pronunciation && !!source && supportsPronunciation(source.language);
+    const ready = !!source && !(source.Type === 'Syllable' && source.Partial);
+    const translation = preferences.translation && ready && !!target && !sameLanguage(source!.language, target);
+    const pronunciation = preferences.pronunciation && ready && supportsPronunciation(source!.language);
 
     const [translating, setTranslating] = useState(false);
     const [romanizing, setRomanizing] = useState(false);

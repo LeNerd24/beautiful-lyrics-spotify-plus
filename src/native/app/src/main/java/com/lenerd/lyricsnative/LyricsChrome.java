@@ -1,6 +1,6 @@
-
 package com.lenerd.lyricsnative;
 
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.ContextWrapper;
 import android.app.Activity;
@@ -143,10 +143,72 @@ public final class LyricsChrome {
     }
 
     public static final class UserSeekBar extends SeekBar {
+        private OnSeekBarChangeListener listener;
+        private boolean tracking;
+
         UserSeekBar(Context context) { super(context); }
 
         @Override
+        @SuppressLint("ClickableViewAccessibility")
+        public boolean onTouchEvent(MotionEvent event) {
+            if (!isEnabled()) return false;
+
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN -> {
+                    if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
+                    setPressed(true);
+
+                    int value = valueAt(event.getX());
+                    setProgress(value);
+
+                    tracking = true;
+                    if (listener != null) {
+                        listener.onStartTrackingTouch(this);
+                        listener.onProgressChanged(this, value, true);
+                    }
+                }
+                case MotionEvent.ACTION_MOVE -> {
+                    if (tracking) moveTo(event.getX());
+                }
+                case MotionEvent.ACTION_UP -> {
+                    if (tracking) moveTo(event.getX());
+                    stopTracking();
+                }
+                case MotionEvent.ACTION_CANCEL -> stopTracking();
+                default -> {
+                }
+            }
+
+            return true;
+        }
+
+        private int valueAt(float x) {
+            int available = getWidth() - getPaddingLeft() - getPaddingRight();
+            float fraction = available <= 0 ? 0 : Math.max(0, Math.min(1, (x - getPaddingLeft()) / available));
+            if (getLayoutDirection() == LAYOUT_DIRECTION_RTL) fraction = 1 - fraction;
+
+            return getMin() + Math.round(fraction * (getMax() - getMin()));
+        }
+
+        private void moveTo(float x) {
+            int value = valueAt(x);
+            if (value == getProgress()) return;
+
+            setProgress(value);
+            if (listener != null) listener.onProgressChanged(this, value, true);
+        }
+
+        private void stopTracking() {
+            if (!tracking) return;
+
+            tracking = false;
+            setPressed(false);
+            if (listener != null) listener.onStopTrackingTouch(this);
+        }
+
+        @Override
         public void setOnSeekBarChangeListener(OnSeekBarChangeListener listener) {
+            this.listener = listener;
             super.setOnSeekBarChangeListener(listener == null ? null : new OnSeekBarChangeListener() {
                 public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
                     if (fromUser) listener.onProgressChanged(bar, progress, true);

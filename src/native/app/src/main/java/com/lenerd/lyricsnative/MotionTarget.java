@@ -11,10 +11,10 @@ interface MotionTarget {
         LyricRowView row = null;
 
         for (ViewParent parent = target.motionView().getParent(); parent != null; parent = parent.getParent()) {
-            if (parent instanceof LyricRowView) row = (LyricRowView) parent;
+            if (parent instanceof LyricRowView) row = (LyricRowView)parent;
             if (parent instanceof LyricCanvasView) {
                 if (row != null) row.targets.add(target);
-                return (LyricCanvasView) parent;
+                return (LyricCanvasView)parent;
             }
         }
         return null;

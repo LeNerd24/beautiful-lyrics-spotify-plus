@@ -9,11 +9,12 @@ import SyllableVocalLine from '../Entities/syllable-vocals';
 import InterludeView from '../Entities/interlude';
 import { AnimationStyle } from '../Entities/animation-style';
 import { LyricCanvas, LyricRow } from '../Components/lyric-motion';
-import { ESTIMATED_LINE_HEIGHT, INTERLUDE_EXIT_MS, INTERLUDE_HEIGHT, LineRange, ScrollCommand, ScrollLayout, buildScrollLayout, buildStaggerDelays, canFollowLine, findActiveLine, firstLineAtOffset, lineScrollOffset, lineStaggerDelay, nextLineRange, renderWindow, stepMomentum, } from './scroll-model';
+import { ESTIMATED_LINE_HEIGHT, INTERLUDE_EXIT_MS, INTERLUDE_HEIGHT, LYRIC_GAP, LineRange, TOP_PADDING, ScrollCommand, ScrollLayout, buildScrollLayout, buildStaggerDelays, canFollowLine, findActiveLine, firstLineAtOffset, lineScrollOffset, lineStaggerDelay, nextLineRange, reconcileRanges, renderWindow, stepMomentum, } from './scroll-model';
 import { scrollSpring, springPosition, springVelocity } from './scroll-spring';
 import { LyricsInteractionProps, LyricsViewport } from '../Components/player-chrome';
 import { lyricTapAction, revealsEarlierLyrics } from '../Components/player-model';
 import { LyricsPresentation } from './presentation';
+import LyricsCredits, { CREDITS_ESTIMATED_HEIGHT, hasCredits } from '../Components/lyrics-credits';
 
 type SyncedLyrics = LineSyncedLyrics | SyllableSyncedLyrics;
 type LyricItem = SyncedLyrics['Content'][number];
@@ -42,7 +43,11 @@ function getTimeline(content: SyncedLyrics['Content'], interludesOnly = false): 
 }
 
 const ScrollingLyrics = ({ lyrics, playbackMs, animationStyle, presentation, controlsShown, controlsOpacity, controlsHeight, onRevealControls, onInteractionStart, onInteractionEnd, onSeekInteraction }: Props) => {
-    const timeline = useMemo(() => getTimeline(lyrics.Content), [lyrics]);
+    const previousTimeline = useRef<LineRange[]>([]);
+    const timeline = useMemo(() => {
+        previousTimeline.current = reconcileRanges(previousTimeline.current, getTimeline(lyrics.Content));
+        return previousTimeline.current;
+    }, [lyrics.Content]);
     const interludes = useMemo(() => lyrics.Content.map(item => item.Type === 'Interlude'), [lyrics]);
     const interludeAlignments = useMemo(() => {
         const alignments = new Array<boolean>(lyrics.Content.length).fill(false);
@@ -59,6 +64,14 @@ const ScrollingLyrics = ({ lyrics, playbackMs, animationStyle, presentation, con
     }, [lyrics]);
 
     const interludeTimeline = useMemo(() => getTimeline(lyrics.Content, true), [lyrics]);
+    const timelineValue = useSharedValue(timeline);
+    const interludeTimelineValue = useSharedValue(interludeTimeline);
+    const interludesValue = useSharedValue(interludes);
+    useEffect(() => {
+        timelineValue.value = timeline;
+        interludeTimelineValue.value = interludeTimeline;
+        interludesValue.value = interludes;
+    }, [timeline, interludeTimeline, interludes, timelineValue, interludeTimelineValue, interludesValue]);
     const reducedMotion = useReducedMotion();
 
     const viewport = useRef<View | null>(null);
@@ -135,6 +148,7 @@ const ScrollingLyrics = ({ lyrics, playbackMs, animationStyle, presentation, con
     const onFrame = useCallback((frame: FrameInfo) => {
         'worklet';
 
+        const timeline = timelineValue.value, interludeTimeline = interludeTimelineValue.value, interludes = interludesValue.value;
         const state = controller;
         if (state.lastFrame === frame.timestamp) return;
 
@@ -229,9 +243,7 @@ const ScrollingLyrics = ({ lyrics, playbackMs, animationStyle, presentation, con
         const previousIndex = state.activeIndex;
         const activeChanged = activeIndex >= 0 && activeIndex !== previousIndex;
         const playbackDelta = position - state.lastPlayback;
-        const seeking = state.lastPlayback >= 0 && (
-            playbackDelta < -80 || playbackDelta > Math.max(250, frameDelta + 250)
-        );
+        const seeking = state.lastPlayback >= 0 && (playbackDelta < -80 || playbackDelta > Math.max(250, frameDelta + 250));
 
         if (seekRequest.value.version !== state.seekVersion) {
             state.forceIndex = seekRequest.value.index;
@@ -322,7 +334,7 @@ const ScrollingLyrics = ({ lyrics, playbackMs, animationStyle, presentation, con
 
         state.activeIndex = activeIndex;
         state.lastPlayback = position;
-    }, [coast, command, controller, density, dragging, followOffset, heights, interludes, interludeTimeline, lastInteraction, layout, layoutAdjustment, manualOffset, maxOffset, measurementTick, measurementVersion, momentum, playbackMs, reducedMotion, seekRequest, suspended, timeline, touching, updateWindow, viewportHeight, viewportWidth]);
+    }, [coast, command, controller, density, dragging, followOffset, heights, interludesValue, interludeTimelineValue, lastInteraction, layout, layoutAdjustment, manualOffset, maxOffset, measurementTick, measurementVersion, momentum, playbackMs, reducedMotion, seekRequest, suspended, timelineValue, touching, updateWindow, viewportHeight, viewportWidth]);
 
     useFrameCallback(onFrame);
 
@@ -348,11 +360,11 @@ const ScrollingLyrics = ({ lyrics, playbackMs, animationStyle, presentation, con
         };
     }, [command, layoutAdjustment, manualOffset, momentum, suspended, touching]));
 
-    const maskProps = useAnimatedProps(() => {
+    const maskProps = useAnimatedProps(useCallback(() => {
         'worklet';
 
         return { controlsMask: [controlsOpacity.value, controlsHeight.value] as const };
-    });
+    }, [controlsOpacity, controlsHeight]));
 
     const pan = useMemo(() => Gesture.Pan().activeOffsetY([-10, 10]).cancelsTouchesInView(true).onBegin(event => {
         'worklet';
@@ -468,6 +480,8 @@ const ScrollingLyrics = ({ lyrics, playbackMs, animationStyle, presentation, con
                                 onSeekLine={seekToLine} onRevealControls={onRevealControls} />
                         );
                     })}
+
+                    {hasCredits(lyrics) && <CreditsRow lyrics={lyrics} layout={layout} />}
                 </LyricCanvas>
             </LyricsViewport>
         </GestureDetector>
@@ -532,7 +546,7 @@ const ScrollingLine = React.memo(({ item, index, range, playbackMs, animationSty
         if (item.Type === 'Vocal') {
             measured.value = { width: -1, height: 0, stable: false };
         }
-    }, [animationStyle, item, presentation?.translation, presentation?.pronunciation, presentation?.swapTranslatedLines, presentation?.hideOriginalLyrics, measured]);
+    }, [animationStyle, item, presentation?.translation, presentation?.pronunciation, presentation?.swapTranslatedLines, presentation?.hideOriginalLyrics, presentation?.pronunciationAsLead, measured]);
 
     const geometryProps = useAnimatedProps(() => {
         'worklet';
@@ -597,6 +611,31 @@ const ScrollingLine = React.memo(({ item, index, range, playbackMs, animationSty
     );
 });
 
+const CreditsRow = React.memo(({ lyrics, layout }: { lyrics: SyncedLyrics; layout: SharedValue<ScrollLayout> }) => {
+    const index = lyrics.Content.length;
+    const geometryProps = useAnimatedProps(() => {
+        'worklet';
+
+        const geometry = layout.value;
+        const transition = geometry.transition;
+        const last = index - 1;
+        const top = last >= 0 ? (geometry.tops[last] ?? 0) + (geometry.heights[last] ?? 0) + LYRIC_GAP : TOP_PADDING;
+
+        return {
+            rowGeometry: [top, CREDITS_ESTIMATED_HEIGHT,
+                transition?.startedAt ?? 0,
+                transition?.delays[last] ?? 0,
+                transition?.snap ?? true] as const
+        };
+    });
+
+    return (
+        <LyricRow rowIndex={index} animatedProps={geometryProps} style={styles.row}>
+            <LyricsCredits lyrics={lyrics} style={styles.credits} />
+        </LyricRow>
+    );
+});
+
 const styles = StyleSheet.create({
     viewport: { flex: 1, position: 'relative', overflow: 'hidden', elevation: 10 },
     densityProbe: { position: 'absolute', top: 0, left: 0, width: 100, height: 0 },
@@ -606,6 +645,7 @@ const styles = StyleSheet.create({
     lyricsLine: { flexDirection: 'column', padding: 6, borderRadius: 22 },
     defaultAlignedLine: { paddingLeft: 25, paddingRight: 35 },
     oppositeAlignedLine: { paddingRight: 25, paddingLeft: 35, alignItems: 'flex-end' },
+    credits: { paddingLeft: 31, paddingRight: 41 },
 });
 
-export default ScrollingLyrics;
+export default React.memo(ScrollingLyrics);

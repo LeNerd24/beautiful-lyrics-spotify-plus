@@ -18,9 +18,7 @@ export function targetLanguage(input: string): string {
     return parts[0].toLowerCase() + (parts.length > 1 ? '-' + parts[1].toUpperCase() : '');
 }
 
-export function sameLanguage(source: string, target: string): boolean {
-    return languageCode(source).split('-')[0] === languageCode(target).split('-')[0];
-}
+export function sameLanguage(source: string, target: string): boolean { return languageCode(source).split('-')[0] === languageCode(target).split('-')[0]; }
 
 export function supportsPronunciation(source: string): boolean {
     return ['ko', 'ja', 'zh', 'ru', 'uk', 'bg', 'sr', 'mk', 'el', 'hi', 'bn', 'ta', 'te', 'gu', 'kn', 'ka', 'hy', 'ar', 'fa', 'he', 'th'].includes(languageCode(source).split('-')[0]);

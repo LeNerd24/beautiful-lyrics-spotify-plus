@@ -1,21 +1,5 @@
-/**
-    Aromanize-js
-    @author Fajar Chandra
-    @since 2017.12.06
-
-    UNICODE TABLE REFERENCES
-    Hangul Jamo            0x3131 - 0x
-    Hangul Choseong Jaeum  0x1100 - 0x1112
-    Hangul Jungseong Moeum 0x1161 -
-    Hangul Jongseong Jaeum 0x11A8
-    Hangul Eumjeol         0xAC00
-*/
-
-// Romanization Constants
 const TransliterationRules = {
-    // Revised Romanization Transcription
     "RevisedRomanizationTranscription": {
-        // Note: giyeok (0x1100) for middle moeum is different than giyeok (0x3131) for standalone jamo
         cho: {
             "ᄀ": "g",
             "ᄁ": "kk",
@@ -40,7 +24,6 @@ const TransliterationRules = {
 
         cho2: undefined,
 
-        // Note: ᅡ (0x1161) for middle moeum is different than ㅏ (0x314F) for standalone jamo
         jung: {
             "ᅡ": "a",
             "ᅢ": "ae",
@@ -65,8 +48,6 @@ const TransliterationRules = {
             "ᅵ": "i",
         },
 
-        // Note: ᆨ (0x11A8) for last jaeum (batchim) is different than ᄀ (0x1100) for first jaeum
-        // also different than ㄱ (0x3131) for standalone jamo
         jong: {
             "ᆨ": "k",
             "ᆨᄋ": "g",
@@ -214,9 +195,7 @@ const TransliterationRules = {
         },
     },
 
-    // Revised Romanization Transliteration
     "RevisedRomanizationTransliteration": {
-        // Note: giyeok (0x1100) for middle moeum is different than giyeok (0x3131) for standalone jamo
         cho: {
             "ᄀ": "g",
             "ᄁ": "kk",
@@ -241,7 +220,6 @@ const TransliterationRules = {
 
         cho2: undefined,
 
-        // Note: ᅡ (0x1161) for middle moeum is different than ㅏ (0x314F) for standalone jamo
         jung: {
             "ᅡ": "a",
             "ᅢ": "ae",
@@ -266,8 +244,6 @@ const TransliterationRules = {
             "ᅵ": "i",
         },
 
-        // Note: ᆨ (0x11A8) for last jaeum (batchim) is different than ᄀ (0x1100) for first jaeum
-        // also different than ㄱ (0x3131) for standalone jamo
         jong: {
             "ᆨ": "g",
             "ᆨᄋ": "g-",
@@ -336,7 +312,6 @@ const TransliterationRules = {
     "Skats": {
         hyphen: " ",
 
-        // Note: giyeok (0x1100) for middle moeum is different than giyeok (0x3131) for standalone jamo
         cho: {
             "ᄀ": "L",
             "ᄁ": "LL",
@@ -362,7 +337,6 @@ const TransliterationRules = {
 
         cho2: undefined,
 
-        // Note: ᅡ (0x1161) for middle moeum is different than ㅏ (0x314F) for standalone jamo
         jung: {
             "ᅡ": "E",
             "ᅢ": "EU",
@@ -387,8 +361,6 @@ const TransliterationRules = {
             "ᅵ": "U",
         },
 
-        // Note: ᆨ (0x11A8) for last jaeum (batchim) is different than ᄀ (0x1100) for first jaeum
-        // also different than ㄱ (0x3131) for standalone jamo
         jong: {
             "ᆨ": "L",
             "ᆩ": "LL",
@@ -420,9 +392,7 @@ const TransliterationRules = {
         },
     },
 
-    // Indonesian Transcription
     "IndonesionTranscription": {
-        // Note: giyeok (0x1100) for middle moeum is different than giyeok (0x3131) for standalone jamo
         cho: {
             "ᄀ": "gh",
             "ᄁ": "k",
@@ -445,7 +415,6 @@ const TransliterationRules = {
             "ᄒ": "h",
         },
 
-        // Note: giyeok (0x1100) for middle moeum is different than giyeok (0x3131) for standalone jamo
         cho2: {
             "ᄀ": "g",
             "ᄁ": "k",
@@ -468,7 +437,6 @@ const TransliterationRules = {
             "ᄒ": "h",
         },
 
-        // Note: ᅡ (0x1161) for middle moeum is different than ㅏ (0x314F) for standalone jamo
         jung: {
             "ᅡ": "a",
             "ᅢ": "è",
@@ -493,8 +461,6 @@ const TransliterationRules = {
             "ᅵ": "i",
         },
 
-        // Note: ᆨ (0x11A8) for last jaeum (batchim) is different than ᄀ (0x1100) for first jaeum
-        // also different than ㄱ (0x3131) for standalone jamo
         jong: {
             "ᆨ": "k",
             "ᆨᄋ": "g",
@@ -644,56 +610,32 @@ const TransliterationRules = {
     },
 }
 
-// Recognition Constants
 const HasWhitespaceCheck = /\s/
 
-// Helper Functions
-// Check if it's letter or numbers
 const IsChoseong = (character: string) => ((character.charCodeAt(0) >= 0x1100) && (character.charCodeAt(0) <= 0x1112))
 
-// Converts Hangul/Hiragana/Katakana to Romaja
-export default (
-    // Source String, Romanization Rule, Hyphenate Syllables with Specified Characters
-    text: string, ruleset: keyof typeof TransliterationRules,
-    syllableHyphenation: string = ""
-) => {
-    // Grab our rules
+export default (text: string, ruleset: keyof typeof TransliterationRules, syllableHyphenation: string = "") => {
     const rules = (TransliterationRules[ruleset] as Record<string, (Record<string, string> | undefined)>)
 
-    // Now determine our romanized text
     let composedRomanization = ""
     let currentSegment: (string | undefined)
-    let processJaeum = true // Indicates jaeum to be processed
+    let processJaeum = true
     for (let index = 0; index <= text.length; index += 1) {
-        // If next is hangul syllable, separate it into jamo
-        // 0xAC00 is the first hangul syllable in unicode table
-        // 0x1100 is the first hangul jaeum in unicode table
-        // 0x1161 is the first hangul moeum in unicode table
-        // 0x11A8 is the first hangul batchim in unicode table
         let nextIdx = (text.charCodeAt(index) - 0xAC00)
         let nextSegment: string
         if ((isNaN(nextIdx) === false) && (nextIdx >= 0) && (nextIdx <= 11171)) {
-            nextSegment = (
-                String.fromCharCode(Math.floor(nextIdx / 588) + 0x1100)
-                + String.fromCharCode(Math.floor((nextIdx % 588) / 28) + 0x1161)
-                + (((nextIdx % 28) == 0) ? "" : String.fromCharCode((nextIdx % 28) + 0x11A7)) // Index 0 is reserved for nothing
-            )
+            nextSegment = (String.fromCharCode(Math.floor(nextIdx / 588) + 0x1100) + String.fromCharCode(Math.floor((nextIdx % 588) / 28) + 0x1161) + (((nextIdx % 28) == 0) ? "" : String.fromCharCode((nextIdx % 28) + 0x11A7)))
         } else {
             nextSegment = text.charAt(index)
         }
 
-        // Except for first iteration (curr is null),
-        // Curr and next contains 2 or 3 jamo, or 1 non-hangul letter
         if (currentSegment !== undefined) {
             let piece = ""
 
-            // Choseong Jaeum
             const currentFirstCharacter = currentSegment.charAt(0)
             if (processJaeum) {
-                // If not the first syllable, try cho2 if defined
                 if (
-                    (index > 0) && (HasWhitespaceCheck.test(text.charAt(index - 2)) === false)
-                    && ((rules.cho2 !== undefined) && (rules.cho2[currentFirstCharacter] !== undefined))
+                    (index > 0) && (HasWhitespaceCheck.test(text.charAt(index - 2)) === false) && ((rules.cho2 !== undefined) && (rules.cho2[currentFirstCharacter] !== undefined))
                 ) {
                     piece += rules.cho2[currentFirstCharacter]
                 } else if (rules.cho![currentFirstCharacter] !== undefined) {
@@ -705,7 +647,6 @@ export default (
                 processJaeum = true
             }
 
-            // Jungseong Moeum
             const currentSegmentLength = currentSegment.length
             if (currentSegmentLength > 1) {
                 const currentSecondCharacter = currentSegment.charAt(1)
@@ -715,38 +656,26 @@ export default (
                     piece += currentSecondCharacter
                 }
 
-                // Add hyphen if no batchim
                 if (currentSegmentLength === 2) {
                     if (IsChoseong(nextSegment.charAt(0))) {
                         piece += " "
                     }
-                } else if (currentSegmentLength > 2) { // Jongseong Jaeum (Batchim)
-                    // Changing sound with next jaeum + moeum
+                } else if (currentSegmentLength > 2) {
                     const currentThirdCharacter = currentSegment.charAt(2)
                     const nextFirstCharacter = nextSegment.charAt(0)
                     const nextSecondCharacter = nextSegment.charAt(1)
                     if (
-                        rules.jong![currentThirdCharacter + nextFirstCharacter + nextSecondCharacter]
-                        !== undefined
+                        rules.jong![currentThirdCharacter + nextFirstCharacter + nextSecondCharacter] !== undefined
                     ) {
                         piece += rules.jong![currentThirdCharacter + nextFirstCharacter + nextSecondCharacter]
                         processJaeum = false
-
-                        // No need to add hyphen here as it's already defined
                     } else if (rules.jong![currentThirdCharacter + nextFirstCharacter] !== undefined) {
-                        // Changing sound with next jaeum
                         piece += rules.jong![currentThirdCharacter + nextFirstCharacter]
                         processJaeum = false
-
-                        // No need to add hyphen here as it's already defined
                     } else {
                         const jongReplacement = rules.jong![currentThirdCharacter]
-                        piece += (
-                            (jongReplacement === undefined) ? currentThirdCharacter
-                                : jongReplacement // Unchanging sound
-                        )
+                        piece += ((jongReplacement === undefined) ? currentThirdCharacter : jongReplacement)
 
-                        // Add hyphen
                         if (IsChoseong(nextFirstCharacter)) {
                             piece += " "
                         }
@@ -754,28 +683,23 @@ export default (
                 }
             }
 
-            // Replace hyphen (if this is hangeul word)
             if (currentSegment.length > 1) {
                 if ((syllableHyphenation === "") && (rules.hyphen !== undefined)) {
                     piece = piece.replace(" ", (rules.hyphen as any))
                 } else {
-                    // Soft hyphen
                     piece = piece.replace(" ", syllableHyphenation)
 
-                    // Hard hyphen
                     if (syllableHyphenation !== "") {
                         piece = piece.replace("-", syllableHyphenation);
                     }
                 }
             }
 
-            // Finally, add our piece
             composedRomanization += piece
         }
 
         currentSegment = nextSegment
     }
 
-    // Finally, return our romanized text
     return composedRomanization
 }
