@@ -144,7 +144,7 @@ public final class LyricsGenerator implements AutoCloseable {
             try {
                 audioSource.writeCurrentTrack(sourceTicket, source, message -> progress(trackId, "downloading", message));
             } catch (IOException error) {
-                throw new GenerationException(error.getMessage());
+                throw new GenerationException(error.getMessage(), error);
             }
 
             progress(trackId, "decoding", "Decoding audio");
@@ -510,5 +510,6 @@ public final class LyricsGenerator implements AutoCloseable {
 
     private static final class GenerationException extends Exception {
         GenerationException(String message) { super(message); }
+        GenerationException(String message, Throwable cause) { super(message, cause); }
     }
 }

@@ -521,7 +521,8 @@ const ScrollingLine = React.memo(({ item, index, range, playbackMs, animationSty
     const tap = useMemo(() => Gesture.Tap().maxDistance(10).onBegin(() => {
         'worklet';
 
-        pressed.value = item.Type !== 'Interlude';
+        const active = playbackMs.value >= range.start && playbackMs.value < range.end;
+        pressed.value = item.Type !== 'Interlude' && (controlsShown.value || active);
     }).onFinalize(() => {
         'worklet';
 

@@ -33,6 +33,7 @@ const App = ({ headerRef, headerGesture }: { headerRef?: React.RefObject<View | 
     const [error, setError] = useState<string>();
     const [songRevision, setSongRevision] = useState(0);
     const [paused, setPaused] = useState(() => SpotifyPlus.Player.getState().isPaused);
+    const [localPlayback, setLocalPlayback] = useState(false);
     const [liked, setLiked] = useState(false);
     const [animationStyle, setAnimationStyle] = useState<AnimationStyle>(() => SpotifyPlus.Platform.Storage.get('lyrics-animation-style') === 'apple' ? 'apple' : 'beautiful');
     const [controlsVisible, setControlsVisible] = useState(paused);
@@ -78,6 +79,29 @@ const App = ({ headerRef, headerGesture }: { headerRef?: React.RefObject<View | 
 
     useEffect(() => { visibility.setPaused(paused); }, [paused, visibility]);
     useEffect(() => () => visibility.dispose(), [visibility]);
+
+    useEffect(() => {
+        let retry: ReturnType<typeof setTimeout> | undefined;
+
+        const updateDevice = () => {
+            clearTimeout(retry);
+
+            try {
+                setLocalPlayback(SpotifyPlus.Connect.getCurrentDevice()?.isLocal === true);
+            } catch (_) {
+                setLocalPlayback(false);
+                retry = setTimeout(updateDevice, 500);
+            }
+        };
+
+        SpotifyPlus.Events.on('deviceChanged', updateDevice);
+        updateDevice();
+
+        return () => {
+            clearTimeout(retry);
+            SpotifyPlus.Events.off('deviceChanged', updateDevice);
+        };
+    }, []);
 
     useEffect(() => {
         const playPause = (event: { isPaused: boolean }) => { visibility.setPaused(event.isPaused); setPaused(event.isPaused); };
@@ -263,9 +287,9 @@ const App = ({ headerRef, headerGesture }: { headerRef?: React.RefObject<View | 
                     <PlayerControls key={track?.uri} playbackMs={playbackMs} durationMs={track?.durationMs ?? 0} paused={paused} onInteract={revealControls} onHold={() => { holdControls(); revealControls(); }} onRelease={releaseControls} />
                 </Animated.View>
 
-                <Animated.View pointerEvents={controlsVisible ? 'auto' : 'none'} style={[{ position: 'absolute', right: 22, elevation: 31 }, singStyle]}>
+                {localPlayback && <Animated.View pointerEvents={controlsVisible ? 'auto' : 'none'} style={[{ position: 'absolute', right: 22, elevation: 31 }, singStyle]}>
                     <SingControl visible={controlsVisible} reducedMotion={reducedMotion} onHold={holdSingControls} onRelease={releaseControls} />
-                </Animated.View>
+                </Animated.View>}
             </View>
 
             {canTranslate && <TranslationMenu key={`${track?.uri}:${target}`} supported={supportsPronunciation(lyrics!.language)}

@@ -26,7 +26,8 @@
         "predev": "npm run build:native",
         "dev": "spotifyplus dev",
         "prebuild": "npm run build:native",
-        "build:native": "node scripts/build-native.mjs",
+        "verify:audio-assets": "node verify-audio-assets.mjs",
+        "build:native": "node verify-audio-assets.mjs && node scripts/build-native.mjs",
         "build": "spotifyplus build",
         "test:translation": "node --test tools/tests/*.test.mjs",
         "typecheck": "tsc --noEmit -p src/tsconfig.json"
