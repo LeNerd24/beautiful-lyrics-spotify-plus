@@ -11,6 +11,72 @@ import static org.junit.Assert.*;
 @RunWith(AndroidJUnit4.class)
 public class NativePreparationTest {
     @Test
+    public void reusableTensorsPreserveCpuAndNpuPredictions() throws Exception {
+        org.junit.Assume.assumeTrue(androidx.test.platform.app.InstrumentationRegistry.getArguments().getString("preparation", "0").equals("1"));
+        var buffered = VocalSeparator.class.getDeclaredMethod("predictBuffered", float[].class);
+        var unbuffered = VocalSeparator.class.getDeclaredMethod("predictUnbuffered", float[].class);
+        buffered.setAccessible(true);
+        unbuffered.setAccessible(true);
+        float[][] input = new float[2][SpectralTransform.SAMPLES];
+        var random = new Random(913);
+        for (boolean npu : new boolean[] {false, true}) {
+            try (var model = npu ? PreparationSpeedTest.separator() : new VocalSeparator(VocalSeparator.bundledModel())) {
+                for (int trial = 0; trial < 4; trial++) {
+                    for (float[] channel : input) for (int i = 0; i < channel.length; i++) channel[i] = (float) (random.nextGaussian() * 0.1);
+                    float[] features = new SpectralTransform().forward(input);
+                    float[] expected = (float[]) unbuffered.invoke(model, (Object) features);
+                    float[] actual = (float[]) buffered.invoke(model, (Object) features);
+                    assertArrayEquals(expected, actual, 0);
+                }
+            }
+        }
+    }
+
+    @Test
+    public void generationCacheReopensAndRecovers() throws Exception {
+        org.junit.Assume.assumeTrue(androidx.test.platform.app.InstrumentationRegistry.getArguments().getString("preparation", "0").equals("1"));
+        float[][] input = new float[2][SpectralTransform.SAMPLES], expected = null;
+        var random = new Random(421);
+        for (float[] channel : input) for (int i = 0; i < channel.length; i++) channel[i] = (float) (0.1 * random.nextGaussian());
+        for (int attempt = 0; attempt < 3; attempt++) {
+            long started = System.nanoTime();
+            try (var model = PreparationSpeedTest.separator(true, false)) {
+                double setup = (System.nanoTime() - started) / 1e6;
+                assertTrue(model.backend().contains("NPU"));
+                float[][] actual = model.separate(input);
+                if (expected == null) expected = actual;
+                for (int c = 0; c < 2; c++) assertArrayEquals(expected[c], actual[c], 0);
+                Log.i("PreparationBenchmark", "PRODUCTION_CACHE attempt=" + attempt + " setup_ms=" + setup + " exact=true");
+            }
+            if (attempt == 1) {
+                var root = PreparationSpeedTest.runtime().getParentFile();
+                var directories = root.listFiles(file -> file.isDirectory() && file.getName().startsWith("vocal-"));
+                assertNotNull(directories);
+                assertTrue(directories.length > 0);
+                for (var directory : directories) java.nio.file.Files.write(new java.io.File(directory, "model_ctx.onnx").toPath(), new byte[] {1, 2, 3});
+            }
+        }
+    }
+
+    @Test
+    public void inverseHandlesIndependentChannelsAndDc() throws Exception {
+        var reference = new SpectralTransform();
+        try (var nativeTransform = new NativeSpectralTransform()) {
+            var random = new Random(413);
+            float[] spectrum = new float[4 * SpectralTransform.BINS * SpectralTransform.TIMES];
+            for (int channel = 0; channel < 2; channel++) {
+                Arrays.fill(spectrum, 0);
+                int from = channel * 2 * SpectralTransform.BINS * SpectralTransform.TIMES;
+                for (int i = from; i < from + 2 * SpectralTransform.BINS * SpectralTransform.TIMES; i++) spectrum[i] = (float) random.nextGaussian();
+                float[][] expected = reference.inverse(spectrum), actual = nativeTransform.inverse(spectrum);
+                for (int c = 0; c < 2; c++) {
+                    for (int i = 0; i < expected[c].length; i++) assertEquals(expected[c][i], actual[c][i], 2e-7f);
+                }
+            }
+        }
+    }
+
+    @Test
     public void generationBurstModeBenchmark() throws Exception {
         org.junit.Assume.assumeTrue(androidx.test.platform.app.InstrumentationRegistry.getArguments().getString("preparation", "0").equals("1"));
         float[][] input = new float[2][SpectralTransform.SAMPLES], expected = null;

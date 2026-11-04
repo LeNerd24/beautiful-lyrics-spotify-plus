@@ -15,6 +15,7 @@ export function TranslationIcon({ name }: { name: 'globe' | 'subtitle' | 'transl
 
 interface Props {
     controlsVisible: boolean; controlsOpacity: SharedValue<number>; controlsHeight: SharedValue<number>;
+    actionsHeight?: SharedValue<number>; actionsRight?: number;
     reducedMotion: boolean; onHold: () => void; onRelease: () => void;
     supported: boolean; translation: boolean; pronunciation: boolean;
     translating: boolean; romanizing: boolean; error?: string;
@@ -66,18 +67,20 @@ export default function TranslationMenu(props: Props) {
 
     const controlsHeight = props.controlsHeight;
     const controlsOpacity = props.controlsOpacity;
+    const actionsHeight = props.actionsHeight;
+    const landscape = props.actionsRight !== undefined;
 
     const buttonStyle = useAnimatedStyle(() => {
         'worklet';
 
-        return { bottom: controlsHeight.value + 2, ...nativeFadeStyle(controlsOpacity.value) };
+        return { bottom: controlsHeight.value - (actionsHeight?.value ?? 0) + 2, ...nativeFadeStyle(controlsOpacity.value) };
     });
 
     const animatedStyle = useAnimatedStyle(() => {
         'worklet';
 
         return {
-            bottom: controlsHeight.value + 58,
+            bottom: controlsHeight.value - (actionsHeight?.value ?? 0) + 58,
             ...nativeFadeStyle(progress.value),
             transform: [{ translateY: (1 - progress.value) * 16 }, { scale: 0.92 + progress.value * 0.08 }]
         };
@@ -111,7 +114,7 @@ export default function TranslationMenu(props: Props) {
 
     return (
         <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, elevation: 40 }}>
-            <Animated.View pointerEvents={props.controlsVisible ? 'auto' : 'none'} style={[{ position: 'absolute', left: 28 }, buttonStyle]}>
+            <Animated.View pointerEvents={props.controlsVisible ? 'auto' : 'none'} style={[landscape ? { position: 'absolute', right: props.actionsRight } : { position: 'absolute', left: 28 }, buttonStyle]}>
                 <Pressable accessibilityLabel="Lyrics translation options" onPress={show}
                     style={({ pressed }) => ({
                         width: 44,
@@ -132,9 +135,7 @@ export default function TranslationMenu(props: Props) {
 
                     <Animated.View style={[{
                         position: 'absolute',
-                        left: 24,
-                        right: 24,
-                        maxWidth: 360,
+                        ...(landscape ? { right: 12, width: 320 } : { left: 24, right: 24, maxWidth: 360 }),
                         backgroundColor: '#ee2c2721',
                         borderRadius: 24,
                         paddingVertical: 6,

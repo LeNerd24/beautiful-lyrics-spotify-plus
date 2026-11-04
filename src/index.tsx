@@ -1,5 +1,6 @@
 import { ExtensionSetting, SpotifyPlus } from 'spotifyplus';
 import { isLyricsOpen, LyricsOpenTrigger, LyricsOverlay, openLyrics } from './Components/lyrics-overlay';
+import { LINE_BLUR_KEY, lineBlurSetting } from './Components/player-model';
 import { canGenerate, GenerationBegin, GenerationLine, GenerationProgress, GenerationResult, generationStore, startGeneration } from './Lyrics/generation-state';
 
 const sparkles = SpotifyPlus.Assets.image('assets/images/sparkles.png');
@@ -14,14 +15,30 @@ const animationSetting: Extract<ExtensionSetting, { type: 'select' }> = {
     options: [{ label: 'Beautiful Lyrics', value: 'beautiful' }, { label: 'Apple Music', value: 'apple' }]
 };
 
-SpotifyPlus.Settings.registerSetting({ title: 'Lyrics', items: [animationSetting] });
+const blurSetting: Extract<ExtensionSetting, { type: 'slider' }> = {
+    id: LINE_BLUR_KEY,
+    type: 'slider',
+    label: 'Inactive line blur',
+    description: 'How much to blur the lines that are not being sung. All the way down turns blur off.',
+    value: lineBlurSetting(SpotifyPlus.Platform.Storage.get(LINE_BLUR_KEY)),
+    min: 0,
+    max: 100,
+    step: 5
+};
 
-SpotifyPlus.on('settings.changed', (payload: unknown) => {
+SpotifyPlus.Settings.registerSetting({ title: 'Lyrics', items: [animationSetting, blurSetting] });
+
+SpotifyPlus.Events.on('settings.changed', (payload: unknown) => {
     const setting = payload as ExtensionSetting | undefined;
 
     if (setting?.id === 'lyrics-animation-style' && setting.type === 'select') {
         animationSetting.value = setting.value === 'apple' ? 'apple' : 'beautiful';
         SpotifyPlus.Platform.Storage.set(setting.id, animationSetting.value);
+    }
+
+    if (setting?.id === LINE_BLUR_KEY && setting.type === 'slider') {
+        blurSetting.value = lineBlurSetting(setting.value);
+        SpotifyPlus.Platform.Storage.set(setting.id, blurSetting.value);
     }
 });
 

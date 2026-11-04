@@ -13,11 +13,11 @@ constexpr double pi = 3.14159265358979323846;
 
 struct spectral {
     std::array<int, radix_size> reverse;
-    std::vector<float> hann, normalizer, radix_twiddle, twiddle, twiddle_two, input, frame, transformed, spectrum, pcm;
+    std::vector<float> hann, normalizer, radix_twiddle, twiddle, twiddle_two, input, frame, transformed, spectrum, pcm, right_input, right_pcm;
     std::array<std::vector<float>, 3> split;
     std::array<std::vector<float>, 11> stages;
 
-    spectral() : hann(fft_size), normalizer(samples), radix_twiddle(radix_size), twiddle(2 * fft_size), twiddle_two(2 * fft_size), input(samples), frame(2 * fft_size), transformed(2 * fft_size), spectrum(4 * bins * times), pcm(samples) {
+    spectral() : hann(fft_size), normalizer(samples), radix_twiddle(radix_size), twiddle(2 * fft_size), twiddle_two(2 * fft_size), input(samples), frame(2 * fft_size), transformed(2 * fft_size), spectrum(4 * bins * times), pcm(samples), right_input(samples), right_pcm(samples) {
         for (int i = 0; i < fft_size; i++) {
             hann[i] = static_cast<float>(0.5 - 0.5 * std::cos(2 * pi * i / fft_size));
             twiddle[2 * i] = static_cast<float>(std::cos(-2 * pi * i / fft_size));
@@ -118,31 +118,36 @@ extern "C" JNIEXPORT void JNICALL Java_com_lenerd_lyricsnative_sing_NativeSpectr
 
 extern "C" JNIEXPORT jfloatArray JNICALL Java_com_lenerd_lyricsnative_sing_NativeSpectralTransform_forward(JNIEnv* env, jclass type, jlong handle, jfloatArray left, jfloatArray right) {
     auto& state = *reinterpret_cast<spectral*>(handle);
+    env->GetFloatArrayRegion(left, 0, samples, state.input.data());
+    env->GetFloatArrayRegion(right, 0, samples, state.right_input.data());
+    if (env->ExceptionCheck()) return nullptr;
     std::fill(state.spectrum.begin(), state.spectrum.end(), 0);
-    for (int c = 0; c < 2; c++) {
-        env->GetFloatArrayRegion(c == 0 ? left : right, 0, samples, state.input.data());
-        if (env->ExceptionCheck()) return nullptr;
-        for (int t = 0; t < times; t++) {
-            int offset = t * hop - margin;
-            int j = 0;
-            if (offset >= 0 && offset + fft_size <= samples) {
-                for (; j < fft_size; j += 4) {
-                    float32x4x2_t result = {{vmulq_f32(vld1q_f32(state.input.data() + offset + j), vld1q_f32(state.hann.data() + j)), vdupq_n_f32(0)}};
-                    vst2q_f32(state.frame.data() + 2 * j, result);
-                }
+    for (int t = 0; t < times; t++) {
+        int offset = t * hop - margin, j = 0;
+        if (offset >= 0 && offset + fft_size <= samples) {
+            for (; j < fft_size; j += 4) {
+                auto window = vld1q_f32(state.hann.data() + j);
+                float32x4x2_t result = {{vmulq_f32(vld1q_f32(state.input.data() + offset + j), window), vmulq_f32(vld1q_f32(state.right_input.data() + offset + j), window)}};
+                vst2q_f32(state.frame.data() + 2 * j, result);
             }
-            for (; j < fft_size; j++) {
-                int k = t * hop + j - margin;
-                if (k < 0) k = -k;
-                if (k >= samples) k = 2 * samples - 2 - k;
-                state.frame[2 * j] = state.input[k] * state.hann[j];
-                state.frame[2 * j + 1] = 0;
-            }
-            state.transform();
-            for (int f = 3; f < bins; f++) {
-                state.spectrum[(2 * c * bins + f) * times + t] = state.transformed[2 * f];
-                state.spectrum[((2 * c + 1) * bins + f) * times + t] = state.transformed[2 * f + 1];
-            }
+        }
+        for (; j < fft_size; j++) {
+            int k = offset + j;
+            if (k < 0) k = -k;
+            if (k >= samples) k = 2 * samples - 2 - k;
+            state.frame[2 * j] = state.input[k] * state.hann[j];
+            state.frame[2 * j + 1] = state.right_input[k] * state.hann[j];
+        }
+        // Two real channels share one complex FFT; conjugate symmetry recovers each spectrum.
+        state.transform();
+        for (int f = 3; f < bins; f++) {
+            int positive = 2 * f, negative = 2 * (fft_size - f);
+            float re = state.transformed[positive], im = state.transformed[positive + 1];
+            float mirror_re = state.transformed[negative], mirror_im = state.transformed[negative + 1];
+            state.spectrum[f * times + t] = (re + mirror_re) * 0.5f;
+            state.spectrum[(bins + f) * times + t] = (im - mirror_im) * 0.5f;
+            state.spectrum[(2 * bins + f) * times + t] = (im + mirror_im) * 0.5f;
+            state.spectrum[(3 * bins + f) * times + t] = (mirror_re - re) * 0.5f;
         }
     }
     jfloatArray output = env->NewFloatArray(state.spectrum.size());
@@ -154,37 +159,73 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_com_lenerd_lyricsnative_sing_Nati
     auto& state = *reinterpret_cast<spectral*>(handle);
     env->GetFloatArrayRegion(spectrum, 0, state.spectrum.size(), state.spectrum.data());
     if (env->ExceptionCheck()) return nullptr;
+    std::fill(state.pcm.begin(), state.pcm.end(), 0);
+    std::fill(state.right_pcm.begin(), state.right_pcm.end(), 0);
+    for (int t = 0; t < times; t++) {
+        std::fill(state.frame.begin(), state.frame.end(), 0);
+        for (int f = 0; f < bins; f++) {
+            float left_re = state.spectrum[f * times + t], left_im = state.spectrum[(bins + f) * times + t];
+            float right_re = state.spectrum[(2 * bins + f) * times + t], right_im = state.spectrum[(3 * bins + f) * times + t];
+            state.frame[2 * f] = f == 0 ? left_re : left_re - right_im;
+            state.frame[2 * f + 1] = f == 0 ? -right_re : -left_im - right_re;
+            if (f > 0) {
+                state.frame[2 * (fft_size - f)] = left_re + right_im;
+                state.frame[2 * (fft_size - f) + 1] = left_im - right_re;
+            }
+        }
+        state.transform();
+        int offset = t * hop - margin, begin = std::max(0, -offset), end = std::min(fft_size, samples - offset), j = begin;
+        for (; j + 4 <= end; j += 4) {
+            auto values = vld2q_f32(state.transformed.data() + 2 * j);
+            auto window = vld1q_f32(state.hann.data() + j);
+            auto left = vmulq_f32(vmulq_n_f32(values.val[0], 1.0f / fft_size), window);
+            auto right = vmulq_f32(vmulq_n_f32(values.val[1], -1.0f / fft_size), window);
+            vst1q_f32(state.pcm.data() + offset + j, vaddq_f32(vld1q_f32(state.pcm.data() + offset + j), left));
+            vst1q_f32(state.right_pcm.data() + offset + j, vaddq_f32(vld1q_f32(state.right_pcm.data() + offset + j), right));
+        }
+        for (; j < end; j++) {
+            state.pcm[offset + j] += (state.transformed[2 * j] * (1.0f / fft_size)) * state.hann[j];
+            state.right_pcm[offset + j] += (state.transformed[2 * j + 1] * (-1.0f / fft_size)) * state.hann[j];
+        }
+    }
     jobjectArray output = env->NewObjectArray(2, env->FindClass("[F"), nullptr);
     if (!output) return nullptr;
     for (int c = 0; c < 2; c++) {
-        std::fill(state.pcm.begin(), state.pcm.end(), 0);
-        for (int t = 0; t < times; t++) {
-            std::fill(state.frame.begin(), state.frame.end(), 0);
-            for (int f = 0; f < bins; f++) {
-                float re = state.spectrum[(2 * c * bins + f) * times + t], im = state.spectrum[((2 * c + 1) * bins + f) * times + t];
-                state.frame[2 * f] = re;
-                state.frame[2 * f + 1] = -im;
-                if (f > 0) {
-                    state.frame[2 * (fft_size - f)] = re;
-                    state.frame[2 * (fft_size - f) + 1] = im;
-                }
-            }
-            state.transform();
-            int offset = t * hop - margin, begin = std::max(0, -offset), end = std::min(fft_size, samples - offset), j = begin;
-            for (; j + 4 <= end; j += 4) {
-                auto values = vld2q_f32(state.transformed.data() + 2 * j);
-                auto scaled = vmulq_n_f32(values.val[0], 1.0f / fft_size);
-                auto windowed = vmulq_f32(scaled, vld1q_f32(state.hann.data() + j));
-                vst1q_f32(state.pcm.data() + offset + j, vaddq_f32(vld1q_f32(state.pcm.data() + offset + j), windowed));
-            }
-            for (; j < end; j++) state.pcm[offset + j] += (state.transformed[2 * j] * (1.0f / fft_size)) * state.hann[j];
-        }
-        for (int i = 0; i < samples; i += 4) vst1q_f32(state.pcm.data() + i, vdivq_f32(vld1q_f32(state.pcm.data() + i), vmaxq_f32(vld1q_f32(state.normalizer.data() + i), vdupq_n_f32(1e-8f))));
+        auto& pcm = c == 0 ? state.pcm : state.right_pcm;
+        for (int i = 0; i < samples; i += 4) vst1q_f32(pcm.data() + i, vdivq_f32(vld1q_f32(pcm.data() + i), vmaxq_f32(vld1q_f32(state.normalizer.data() + i), vdupq_n_f32(1e-8f))));
         jfloatArray channel = env->NewFloatArray(samples);
         if (!channel) return nullptr;
-        env->SetFloatArrayRegion(channel, 0, samples, state.pcm.data());
+        env->SetFloatArrayRegion(channel, 0, samples, pcm.data());
         env->SetObjectArrayElement(output, c, channel);
         env->DeleteLocalRef(channel);
     }
     return output;
+}
+
+extern "C" JNIEXPORT jint JNICALL Java_com_lenerd_lyricsnative_generation_StreamingResampler_resample(JNIEnv* env, jclass type, jfloatArray input, jdoubleArray phases, jint width, jint phase_count, jint radius, jlong base, jlong received, jlong produced, jint input_rate, jint output_rate, jdouble step, jdouble half_width, jboolean last, jfloatArray output, jint offset, jint capacity) {
+    auto* samples = env->GetFloatArrayElements(input, nullptr);
+    if (!samples) return 0;
+    auto* weights = env->GetDoubleArrayElements(phases, nullptr);
+    if (!weights) {
+        env->ReleaseFloatArrayElements(input, samples, JNI_ABORT);
+        return 0;
+    }
+    std::array<float, 4096> result;
+    int count = 0;
+    for (; count < capacity; count++) {
+        int64_t position = produced + count;
+        if (!last && std::floor(position * step + half_width) >= received) break;
+        const double* phase = weights + (position % phase_count) * width;
+        int64_t begin = position * input_rate / output_rate - radius;
+        int from = static_cast<int>(std::max<int64_t>(0, base - begin));
+        int to = static_cast<int>(std::min<int64_t>(width, received - begin));
+        int at = static_cast<int>(begin - base + from);
+        double sum = 0;
+        for (int i = from; i < to; i++) sum += samples[at++] * phase[i];
+        result[count] = static_cast<float>(sum);
+    }
+    env->ReleaseDoubleArrayElements(phases, weights, JNI_ABORT);
+    env->ReleaseFloatArrayElements(input, samples, JNI_ABORT);
+    if (count) env->SetFloatArrayRegion(output, offset, count, result.data());
+    return count;
 }

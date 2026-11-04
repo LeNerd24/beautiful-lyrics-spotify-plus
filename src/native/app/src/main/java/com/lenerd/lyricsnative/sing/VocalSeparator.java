@@ -8,6 +8,7 @@ import java.io.File;
 import java.util.Map;
 
 public final class VocalSeparator implements AutoCloseable {
+    private static final Object CACHE_LOCK = new Object();
     private final OrtEnvironment environment = OrtEnvironment.getEnvironment();
     private OrtSession session;
     private OrtSession.SessionOptions sessionOptions;
@@ -20,6 +21,8 @@ public final class VocalSeparator implements AutoCloseable {
     private final boolean fastTransform;
     private final String postRunPerformance;
     private final float compensation;
+    private FloatBuffer featureBuffer, predictionBuffer;
+    private OnnxTensor featureTensor, predictionTensor;
 
     public static byte[] bundledModel() throws java.io.IOException {
         try (var stream = VocalSeparator.class.getClassLoader().getResourceAsStream("assets/models/vocals.onnx")) {
@@ -85,7 +88,7 @@ public final class VocalSeparator implements AutoCloseable {
 
         if (directory != null && OrtEnvironment.getAvailableProviders().contains(OrtProvider.QNN)) {
             try {
-                openSession(model, true);
+                openAccelerated(model);
                 fallbackModel = model;
                 initializeTransform();
                 return;
@@ -109,6 +112,45 @@ public final class VocalSeparator implements AutoCloseable {
     }
 
     private void openSession(byte[] model, boolean accelerate) throws OrtException {
+        openSession(model, accelerate, null, false);
+    }
+
+    private void openAccelerated(byte[] model) throws OrtException {
+        if (!fastTransform) {
+            openSession(model, true);
+            return;
+        }
+        synchronized (CACHE_LOCK) {
+            try {
+                byte[] hash = java.security.MessageDigest.getInstance("SHA-256").digest(model);
+                StringBuilder identity = new StringBuilder(64);
+                for (byte value : hash) identity.append(String.format(java.util.Locale.ROOT, "%02x", value & 255));
+                File directory = new File(qnnDirectory.getParentFile(), "vocal-" + identity + "-ort1232-qnn2371-" + Integer.toHexString(android.os.Build.FINGERPRINT.hashCode()));
+                if (!directory.isDirectory() && !directory.mkdirs()) throw new java.io.IOException("Cannot create vocal model cache");
+                File cache = new File(directory, "model_ctx.onnx");
+                long started = System.nanoTime();
+                if (cache.isFile()) {
+                    try {
+                        openSession(model, true, cache, true);
+                        Log.i("LyricsGeneration", "Vocal model cached setup_ms=" + (System.nanoTime() - started) / 1e6);
+                        return;
+                    } catch (OrtException | RuntimeException error) {
+                        Log.w("LyricsGeneration", "Rebuilding unusable vocal model cache", error);
+                    }
+                }
+                File[] stale = directory.listFiles();
+                if (stale != null) for (File file : stale) if (file.isFile()) java.nio.file.Files.deleteIfExists(file.toPath());
+                openSession(model, true, cache, false);
+                Log.i("LyricsGeneration", "Vocal model compiled setup_ms=" + (System.nanoTime() - started) / 1e6);
+                return;
+            } catch (Exception error) {
+                Log.w("LyricsGeneration", "Vocal model cache unavailable; opening original model", error);
+            }
+            openSession(model, true);
+        }
+    }
+
+    private void openSession(byte[] model, boolean accelerate, File cache, boolean cached) throws OrtException {
         var options = new OrtSession.SessionOptions();
         OrtSession created = null;
         try {
@@ -120,7 +162,14 @@ public final class VocalSeparator implements AutoCloseable {
             options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT);
 
             if (accelerate) configureQnn(options, qnnDirectory, performance);
-            created = environment.createSession(model, options);
+            if (cache != null) {
+                options.addConfigEntry("ep.context_file_path", cache.getAbsolutePath());
+                if (!cached) {
+                    options.addConfigEntry("ep.context_enable", "1");
+                    options.addConfigEntry("ep.context_embed_mode", "0");
+                }
+            }
+            created = cached ? environment.createSession(cache.getAbsolutePath(), options) : environment.createSession(model, options);
             var shape = ((TensorInfo) created.getInputInfo().get("input").getInfo()).getShape();
             if (shape.length != 4 || shape[1] != 4 || shape[2] != SpectralTransform.BINS) throw new IllegalArgumentException("Wrong MDX model shape");
 
@@ -177,6 +226,10 @@ public final class VocalSeparator implements AutoCloseable {
     }
 
     private float[] predict(float[] features) throws OrtException {
+        return fastTransform ? predictBuffered(features) : predictUnbuffered(features);
+    }
+
+    private float[] predictUnbuffered(float[] features) throws OrtException {
         try (var input = OnnxTensor.createTensor(environment, FloatBuffer.wrap(features), new long[] {1, 4, SpectralTransform.BINS, SpectralTransform.TIMES}); var runOptions = new OrtSession.RunOptions()) {
             if (qnn) {
                 runOptions.addRunConfigEntry("qnn.htp_perf_mode", performance);
@@ -197,12 +250,47 @@ public final class VocalSeparator implements AutoCloseable {
         }
     }
 
+    private float[] predictBuffered(float[] features) throws OrtException {
+        if (featureTensor == null) {
+            featureBuffer = java.nio.ByteBuffer.allocateDirect(features.length * Float.BYTES).order(java.nio.ByteOrder.nativeOrder()).asFloatBuffer();
+            predictionBuffer = java.nio.ByteBuffer.allocateDirect(features.length * Float.BYTES).order(java.nio.ByteOrder.nativeOrder()).asFloatBuffer();
+            long[] shape = {1, 4, SpectralTransform.BINS, SpectralTransform.TIMES};
+            OnnxTensor input = OnnxTensor.createTensor(environment, featureBuffer, shape);
+            try {
+                predictionTensor = OnnxTensor.createTensor(environment, predictionBuffer, shape);
+                featureTensor = input;
+            } catch (OrtException | RuntimeException | Error error) {
+                input.close();
+                throw error;
+            }
+        }
+        featureBuffer.clear();
+        featureBuffer.put(features).rewind();
+        try (var runOptions = new OrtSession.RunOptions()) {
+            if (qnn) {
+                runOptions.addRunConfigEntry("qnn.htp_perf_mode", performance);
+                runOptions.addRunConfigEntry("qnn.htp_perf_mode_post_run", postRunPerformance);
+            }
+            try (var result = session.run(Map.of("input", featureTensor), java.util.Set.of(), Map.of(session.getOutputNames().iterator().next(), predictionTensor), runOptions)) {
+                float[] prediction = new float[features.length];
+                predictionBuffer.rewind();
+                predictionBuffer.get(prediction);
+                for (float value : prediction) if (!Float.isFinite(value)) throw new IllegalStateException("Nonfinite model output");
+                return prediction;
+            }
+        }
+    }
+
     @Override
     public synchronized void close() throws OrtException {
         try {
             if (session != null) session.close();
         } finally {
             session = null;
+            if (featureTensor != null) featureTensor.close();
+            if (predictionTensor != null) predictionTensor.close();
+            featureTensor = predictionTensor = null;
+            featureBuffer = predictionBuffer = null;
             if (sessionOptions != null) sessionOptions.close();
             sessionOptions = null;
             fallbackModel = null;

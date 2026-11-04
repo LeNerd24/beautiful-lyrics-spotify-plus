@@ -48,7 +48,7 @@ final class AudioPreparation {
             long finishing = System.nanoTime();
             MusicAnalysis analysis = new MusicAnalysis(vocalRhythm.finish(), instrumentalRhythm.finish());
             Log.i(TAG, String.format(Locale.ROOT, "PERF section_prepared start_ms=%.2f end_ms=%.2f total_ms=%.2f model_windows=%d model_ms=%.2f rhythm_resample_ms=%.2f finish_ms=%.2f", chunk.start(), chunk.end(), (System.nanoTime() - started) / 1e6, modelWindows[0], modelNanos[0] / 1e6, analysisNanos[0] / 1e6, (System.nanoTime() - finishing) / 1e6));
-            return new Result(java.util.Arrays.copyOf(vocals, written[0]), analysis, start * 1000.0 / decoded.rate());
+            return new Result(written[0] == vocals.length ? vocals : java.util.Arrays.copyOf(vocals, written[0]), analysis, start * 1000.0 / decoded.rate());
         }
     }
 }

@@ -19,6 +19,7 @@
 !/src/native/app/src/test/**/
 !/src/native/app/src/test/java/com/lenerd/lyricsnative/generation/SpotifyAudioApiTest.java
 !/src/native/app/src/test/java/com/lenerd/lyricsnative/generation/MediaProcessorResultTest.java
+!/src/native/app/src/test/java/com/lenerd/lyricsnative/generation/OrderedTasksTest.java
 !/src/native/app/src/test/java/com/spotify/contentdelivery/mediaprocessing/CreateProcessorResult.java
 !/src/native/app/src/test/java/com/spotify/connectivity/httpretrofit/RetrofitMaker.java
 /verification

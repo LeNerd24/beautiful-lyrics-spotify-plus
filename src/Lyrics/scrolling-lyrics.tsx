@@ -9,7 +9,7 @@ import SyllableVocalLine from '../Entities/syllable-vocals';
 import InterludeView from '../Entities/interlude';
 import { AnimationStyle } from '../Entities/animation-style';
 import { LyricCanvas, LyricRow } from '../Components/lyric-motion';
-import { ESTIMATED_LINE_HEIGHT, INTERLUDE_EXIT_MS, INTERLUDE_HEIGHT, LYRIC_GAP, LineRange, TOP_PADDING, ScrollCommand, ScrollLayout, buildScrollLayout, buildStaggerDelays, canFollowLine, findActiveLine, firstLineAtOffset, lineScrollOffset, lineStaggerDelay, nextLineRange, reconcileRanges, renderWindow, stepMomentum, } from './scroll-model';
+import { ESTIMATED_LINE_HEIGHT, INTERLUDE_EXIT_MS, INTERLUDE_HEIGHT, LYRIC_GAP, LineRange, TOP_PADDING, ScrollCommand, ScrollLayout, ALIGN_POSITION, buildScrollLayout, buildStaggerDelays, canFollowLine, findActiveLine, firstLineAtOffset, lineScrollOffset, lineStaggerDelay, nextLineRange, reconcileRanges, renderWindow, stepMomentum, } from './scroll-model';
 import { scrollSpring, springPosition, springVelocity } from './scroll-spring';
 import { LyricsInteractionProps, LyricsViewport } from '../Components/player-chrome';
 import { lyricTapAction, revealsEarlierLyrics } from '../Components/player-model';
@@ -42,7 +42,7 @@ function getTimeline(content: SyncedLyrics['Content'], interludesOnly = false): 
     return ranges;
 }
 
-const ScrollingLyrics = ({ lyrics, playbackMs, animationStyle, presentation, controlsShown, controlsOpacity, controlsHeight, onRevealControls, onInteractionStart, onInteractionEnd, onSeekInteraction }: Props) => {
+const ScrollingLyrics = ({ lyrics, playbackMs, animationStyle, presentation, alignPosition = ALIGN_POSITION, lineBlur = 0, controlsShown, controlsOpacity, controlsHeight, onRevealControls, onInteractionStart, onInteractionEnd, onSeekInteraction }: Props) => {
     const previousTimeline = useRef<LineRange[]>([]);
     const timeline = useMemo(() => {
         previousTimeline.current = reconcileRanges(previousTimeline.current, getTimeline(lyrics.Content));
@@ -67,6 +67,13 @@ const ScrollingLyrics = ({ lyrics, playbackMs, animationStyle, presentation, con
     const timelineValue = useSharedValue(timeline);
     const interludeTimelineValue = useSharedValue(interludeTimeline);
     const interludesValue = useSharedValue(interludes);
+    const alignValue = useSharedValue(alignPosition);
+    const blurValue = useSharedValue(lineBlur);
+    const blurFocus = useSharedValue(-1);
+    useEffect(() => {
+        alignValue.value = alignPosition;
+        blurValue.value = lineBlur;
+    }, [alignPosition, alignValue, lineBlur, blurValue]);
     useEffect(() => {
         timelineValue.value = timeline;
         interludeTimelineValue.value = interludeTimeline;
@@ -202,9 +209,9 @@ const ScrollingLyrics = ({ lyrics, playbackMs, animationStyle, presentation, con
             state.lastMeasure = frame.timestamp;
         }
 
-        if (viewportHeight.value > 0 && (Math.abs(viewportHeight.value - state.geometry.viewportHeight) > 0.5 || state.measurementVersion !== measurementVersion.value || interludeChanged)) {
+        if (viewportHeight.value > 0 && (Math.abs(viewportHeight.value - state.geometry.viewportHeight) > 0.5 || alignValue.value !== state.geometry.alignPosition || state.measurementVersion !== measurementVersion.value || interludeChanged)) {
             const oldLayout = state.geometry;
-            const nextLayout = buildScrollLayout(heights.value, viewportHeight.value, interludes, expandedInterlude);
+            const nextLayout = buildScrollLayout(heights.value, viewportHeight.value, interludes, expandedInterlude, alignValue.value);
 
             if (state.initialized && suspended.value) {
                 const offset = followOffset.value + manualOffset.value + layoutAdjustment.value;
@@ -259,6 +266,8 @@ const ScrollingLyrics = ({ lyrics, playbackMs, animationStyle, presentation, con
                 focusIndex = timeline[index].index;
             }
         }
+
+        if (blurFocus.value !== focusIndex) blurFocus.value = focusIndex;
 
         const browseOffset = manualOffset.value + layoutAdjustment.value;
         const currentOffset = followOffset.value + browseOffset;
@@ -334,7 +343,7 @@ const ScrollingLyrics = ({ lyrics, playbackMs, animationStyle, presentation, con
 
         state.activeIndex = activeIndex;
         state.lastPlayback = position;
-    }, [coast, command, controller, density, dragging, followOffset, heights, interludesValue, interludeTimelineValue, lastInteraction, layout, layoutAdjustment, manualOffset, maxOffset, measurementTick, measurementVersion, momentum, playbackMs, reducedMotion, seekRequest, suspended, timelineValue, touching, updateWindow, viewportHeight, viewportWidth]);
+    }, [alignValue, blurFocus, coast, command, controller, density, dragging, followOffset, heights, interludesValue, interludeTimelineValue, lastInteraction, layout, layoutAdjustment, manualOffset, maxOffset, measurementTick, measurementVersion, momentum, playbackMs, reducedMotion, seekRequest, suspended, timelineValue, touching, updateWindow, viewportHeight, viewportWidth]);
 
     useFrameCallback(onFrame);
 
@@ -356,9 +365,12 @@ const ScrollingLyrics = ({ lyrics, playbackMs, animationStyle, presentation, con
                 pauseFollow: touching.value,
                 pauseEffects: touching.value || momentum.value,
                 suspended: suspended.value,
+                lineBlur: blurValue.value,
+                blurFocus: blurFocus.value,
+                blurSnap: reducedMotion,
             }
         };
-    }, [command, layoutAdjustment, manualOffset, momentum, suspended, touching]));
+    }, [blurFocus, blurValue, command, layoutAdjustment, manualOffset, momentum, reducedMotion, suspended, touching]));
 
     const maskProps = useAnimatedProps(useCallback(() => {
         'worklet';
@@ -631,7 +643,7 @@ const CreditsRow = React.memo(({ lyrics, layout }: { lyrics: SyncedLyrics; layou
     });
 
     return (
-        <LyricRow rowIndex={index} animatedProps={geometryProps} style={styles.row}>
+        <LyricRow rowIndex={index} blurrable={false} animatedProps={geometryProps} style={styles.row}>
             <LyricsCredits lyrics={lyrics} style={styles.credits} />
         </LyricRow>
     );

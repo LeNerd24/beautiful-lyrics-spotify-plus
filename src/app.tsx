@@ -8,7 +8,8 @@ import LyricsView from './Lyrics/lyrics-view';
 import LyricsSkeleton from './Components/lyrics-skeleton';
 import { AnimationStyle } from './Entities/animation-style';
 import { ChromeButton, LyricsInset, LyricsTitle, PlayerControls } from './Components/player-chrome';
-import { CONTROLS_FADE_MS, ControlsVisibility } from './Components/player-model';
+import { CONTROLS_FADE_MS, ControlsVisibility, LANDSCAPE_ACTIONS_HEIGHT, LINE_BLUR_KEY, LyricsViewportSize, isLandscape, landscapeLayout, lineBlurRadius, lineBlurSetting } from './Components/player-model';
+import { LANDSCAPE_ALIGN_POSITION } from './Lyrics/scroll-model';
 import { nativeFadeStyle } from './Components/native-fade';
 import { GestureDetector } from 'spotifyplus/react/Gesture';
 import { SingControl } from './Components/sing-control';
@@ -25,7 +26,9 @@ const AUTO_GENERATE_DELAY_MS = 5000;
 
 const AnimatedBackground = createNativeComponent<CommonViewProps & { imageUrl?: string }>('AnimatedBackground');
 
-const App = ({ headerRef, headerGesture }: { headerRef?: React.RefObject<View | null>; headerGesture?: React.ComponentProps<typeof GestureDetector>['gesture'] } = {}) => {
+const App = ({ headerRef, headerGesture, viewport }: { headerRef?: React.RefObject<View | null>; headerGesture?: React.ComponentProps<typeof GestureDetector>['gesture']; viewport?: LyricsViewportSize } = {}) => {
+    const landscape = !!viewport && isLandscape(viewport);
+    const wide = landscape ? landscapeLayout(viewport) : undefined;
     const [loadedLyrics, setLoadedLyrics] = useState<TransformedLyrics>();
     const [track, setTrack] = useState<SpotifyTrack>();
     const generationLyrics = useSyncExternalStore(generationStore.subscribe, () => generationStore.getLyrics(track?.id));
@@ -39,6 +42,7 @@ const App = ({ headerRef, headerGesture }: { headerRef?: React.RefObject<View | 
     const [localPlayback, setLocalPlayback] = useState(false);
     const [liked, setLiked] = useState(false);
     const [animationStyle, setAnimationStyle] = useState<AnimationStyle>(() => SpotifyPlus.Platform.Storage.get('lyrics-animation-style') === 'apple' ? 'apple' : 'beautiful');
+    const [lineBlur, setLineBlur] = useState(() => lineBlurSetting(SpotifyPlus.Platform.Storage.get(LINE_BLUR_KEY)));
     const [controlsVisible, setControlsVisible] = useState(paused);
     const translationSettings = useLyricsSettings();
     const autoGenerate = useAutoGenerate();
@@ -59,6 +63,7 @@ const App = ({ headerRef, headerGesture }: { headerRef?: React.RefObject<View | 
     const controlsShown = useSharedValue(paused);
     const controlsOpacity = useSharedValue(paused ? 1 : 0);
     const controlsHeight = useSharedValue(210);
+    const actionsHeight = useSharedValue(0);
 
     const playbackMs = usePlaybackClock({ unit: 'ms' });
     const reducedMotion = useReducedMotion();
@@ -80,6 +85,7 @@ const App = ({ headerRef, headerGesture }: { headerRef?: React.RefObject<View | 
         controlsOpacity.value = withTiming(controlsVisible ? 1 : 0, { duration: reducedMotion ? 0 : CONTROLS_FADE_MS });
     }, [controlsVisible, controlsOpacity, reducedMotion]);
 
+    useEffect(() => { actionsHeight.value = landscape ? LANDSCAPE_ACTIONS_HEIGHT : 0; }, [landscape, actionsHeight]);
     useEffect(() => { visibility.setPaused(paused); }, [paused, visibility]);
     useLayoutEffect(() => {
         visibility.activate();
@@ -132,14 +138,16 @@ const App = ({ headerRef, headerGesture }: { headerRef?: React.RefObject<View | 
             if (setting?.id === 'lyrics-animation-style' && setting.type === 'select') {
                 setAnimationStyle(setting.value === 'apple' ? 'apple' : 'beautiful');
             }
+
+            if (setting?.id === LINE_BLUR_KEY && setting.type === 'slider') setLineBlur(lineBlurSetting(setting.value));
         };
 
         const styleChanged = (style: unknown) => setAnimationStyle(style === 'apple' ? 'apple' : 'beautiful');
         SpotifyPlus.Events.on('lyrics.animationStyleChanged', styleChanged);
-        SpotifyPlus.on('settings.changed', settingChanged);
+        SpotifyPlus.Events.on('settings.changed', settingChanged);
 
         return () => {
-            SpotifyPlus.off('settings.changed', settingChanged);
+            SpotifyPlus.Events.off('settings.changed', settingChanged);
             SpotifyPlus.Events.off('lyrics.animationStyleChanged', styleChanged);
         };
     }, []);
@@ -220,8 +228,8 @@ const App = ({ headerRef, headerGesture }: { headerRef?: React.RefObject<View | 
         panelMeasure.last = frame.timestamp;
 
         const size = measure(panel), probe = measure(densityProbe);
-        if (size && probe && probe.width > 0 && size.height > 0) controlsHeight.value = size.height / (probe.width / 100);
-    }, [controlsHeight, panelMeasure]));
+        if (size && probe && probe.width > 0 && size.height > 0) controlsHeight.value = size.height / (probe.width / 100) + actionsHeight.value;
+    }, [actionsHeight, controlsHeight, panelMeasure]));
 
     const panelStyle = useAnimatedStyle(() => {
         'worklet';
@@ -230,7 +238,16 @@ const App = ({ headerRef, headerGesture }: { headerRef?: React.RefObject<View | 
     });
     const singStyle = useAnimatedStyle(() => {
         'worklet';
-        return { bottom: Math.max(0, controlsHeight.value - 4), ...nativeFadeStyle(controlsOpacity.value) };
+        return { bottom: Math.max(0, controlsHeight.value - actionsHeight.value - 4), ...nativeFadeStyle(controlsOpacity.value) };
+    });
+    const actionsStyle = useAnimatedStyle(() => {
+        'worklet';
+        return { bottom: controlsHeight.value - actionsHeight.value + 2, ...nativeFadeStyle(controlsOpacity.value) };
+    });
+    const infoStyle = useAnimatedStyle(() => {
+        'worklet';
+        const panelHeight = controlsHeight.value - actionsHeight.value;
+        return { translateY: -controlsOpacity.value * panelHeight / 2 };
     });
 
     const toggleLike = () => {
@@ -260,7 +277,17 @@ const App = ({ headerRef, headerGesture }: { headerRef?: React.RefObject<View | 
 
     const draggableHeader = (element: React.ReactElement) => headerGesture ? <GestureDetector gesture={headerGesture}>{element}</GestureDetector> : element;
 
-    const header = (
+    const header = wide ? (
+        <View onPress={revealControls} style={{ width: wide.infoWidth, position: 'relative' }}>
+            <Animated.View style={[{ flex: 1, alignItems: 'center', justifyContent: 'center' }, infoStyle]}>
+                {track && <>
+                    <Image source={{ uri: track.album.image }} onPress={revealControls} style={{ width: wide.artSize, height: wide.artSize, borderRadius: 6 }} />
+                    <LyricsTitle text={track.title} centered accessibilityLabel={track.title} style={{ width: wide.infoWidth - 40, height: 22, fontSize: 15, fontWeight: '600', color: '#FFFFFF', marginTop: 10 }} />
+                    <Text style={{ width: wide.infoWidth - 40, color: '#BFFFFFFF', fontSize: 13, marginTop: 1, textAlign: 'center', includeFontPadding: false }} numberOfLines={1}>{track.artist}</Text>
+                </>}
+            </Animated.View>
+        </View>
+    ) : (
         <View ref={headerRef}>
             <LyricsInset edge='top' style={{ width: '100%' }} />
 
@@ -285,35 +312,53 @@ const App = ({ headerRef, headerGesture }: { headerRef?: React.RefObject<View | 
         <View style={{ flex: 1, position: 'relative' }}>
             <AnimatedBackground imageUrl={track?.album.image} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, elevation: 0 }} />
 
-            {headerGesture ? <GestureDetector gesture={headerGesture}>{header}</GestureDetector> : header}
+            <View style={{ flex: 1, flexDirection: 'row' }}>
+                <LyricsInset edge='left' style={{ height: '100%' }} />
 
-            <TrackGenerationProgress trackId={track?.id} />
+                <View style={{ flex: 1, minWidth: 0, position: 'relative' }}>
+                    <View style={{ flex: 1, flexDirection: landscape ? 'row' : 'column' }}>
+                        {headerGesture ? <GestureDetector gesture={headerGesture}>{header}</GestureDetector> : header}
 
-            <View style={{ flex: 1, position: 'relative' }}>
-                <View ref={densityProbe} pointerEvents='none' style={{ position: 'absolute', top: 0, width: 100, height: 0 }} />
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                            <TrackGenerationProgress trackId={track?.id} />
 
-                {lyrics ? (
-                    <LyricsView key={`${track?.id}:${generationLyrics?.GenerationId ?? 'provider'}`} lyrics={translated.lyrics} presentation={presentation} animationStyle={animationStyle} controlsShown={controlsShown} controlsOpacity={controlsOpacity} controlsHeight={controlsHeight} onRevealControls={revealControls} onInteractionStart={holdControls} onInteractionEnd={releaseControls} onSeekInteraction={seekInteraction} />)
-                    : <View onPress={revealControls} style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 28 }}>
-                        {loading ? <LyricsSkeleton /> : <Text style={{ fontSize: 18, color: '#BFFFFFFF' }}>{error}</Text>}
-                    </View>}
+                            <View style={{ flex: 1, position: 'relative' }}>
+                                <View ref={densityProbe} pointerEvents='none' style={{ position: 'absolute', top: 0, width: 100, height: 0 }} />
 
-                <Animated.View ref={panel} pointerEvents={controlsVisible ? 'auto' : 'none'} style={[{ position: 'absolute', left: 0, right: 0, bottom: 0, elevation: 30 }, panelStyle]}>
-                    <PlayerControls key={track?.uri} playbackMs={playbackMs} durationMs={track?.durationMs ?? 0} paused={paused} onInteract={revealControls} onHold={() => { holdControls(); revealControls(); }} onRelease={releaseControls} />
-                </Animated.View>
+                                {lyrics ? (
+                                    <LyricsView key={`${track?.id}:${generationLyrics?.GenerationId ?? 'provider'}`} lyrics={translated.lyrics} presentation={presentation} animationStyle={animationStyle} alignPosition={landscape ? LANDSCAPE_ALIGN_POSITION : undefined} lineBlur={lineBlurRadius(lineBlur)} controlsShown={controlsShown} controlsOpacity={controlsOpacity} controlsHeight={controlsHeight} onRevealControls={revealControls} onInteractionStart={holdControls} onInteractionEnd={releaseControls} onSeekInteraction={seekInteraction} />)
+                                    : <View onPress={revealControls} style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 28 }}>
+                                        {loading ? <LyricsSkeleton /> : <Text style={{ fontSize: 18, color: '#BFFFFFFF' }}>{error}</Text>}
+                                    </View>}
+                            </View>
+                        </View>
+                    </View>
 
-                {localPlayback && <Animated.View pointerEvents={controlsVisible ? 'auto' : 'none'} style={[{ position: 'absolute', right: 22, elevation: 31 }, singStyle]}>
-                    <SingControl visible={controlsVisible} reducedMotion={reducedMotion} onHold={holdSingControls} onRelease={releaseControls} />
-                </Animated.View>}
+                    <Animated.View ref={panel} pointerEvents={controlsVisible ? 'auto' : 'none'} style={[{ position: 'absolute', left: 0, right: 0, bottom: 0, elevation: 30 }, panelStyle]}>
+                        <PlayerControls key={track?.uri} landscape={landscape} playbackMs={playbackMs} durationMs={track?.durationMs ?? 0} paused={paused} onInteract={revealControls} onHold={() => { holdControls(); revealControls(); }} onRelease={releaseControls} />
+                    </Animated.View>
+
+                    {landscape && track && <Animated.View pointerEvents={controlsVisible ? 'auto' : 'none'} style={[{ position: 'absolute', right: 12, flexDirection: 'row', elevation: 31 }, actionsStyle]}>
+                        <ChromeButton name='heart' label={liked ? 'Unlike song' : 'Like song'} compact filled={liked} onPress={toggleLike} />
+                        <ChromeButton name='more' label='Now Playing context menu' compact onPress={openContextMenu} />
+                    </Animated.View>}
+
+                    {localPlayback && <Animated.View pointerEvents={controlsVisible ? 'auto' : 'none'} style={[{ position: 'absolute', right: landscape ? 96 : 22, elevation: 31 }, singStyle]}>
+                        <SingControl visible={controlsVisible} reducedMotion={reducedMotion} onHold={holdSingControls} onRelease={releaseControls} />
+                    </Animated.View>}
+
+                    {canTranslate && <TranslationMenu key={`${track?.uri}:${target}`} supported={supportsPronunciation(lyrics!.language)}
+                        controlsVisible={controlsVisible} controlsOpacity={controlsOpacity} controlsHeight={controlsHeight}
+                        actionsHeight={actionsHeight} actionsRight={landscape ? (localPlayback ? 152 : 106) : undefined}
+                        reducedMotion={reducedMotion} onHold={holdSingControls} onRelease={releaseControls}
+                        translation={translated.translation} pronunciation={translated.pronunciation}
+                        translating={translated.translating} romanizing={translated.romanizing}
+                        error={!target ? 'Enter a supported translation language code in settings, such as en or fr.' : translated.error}
+                        onTranslation={translated.toggleTranslation} onPronunciation={translated.togglePronunciation} />}
+                </View>
+
+                <LyricsInset edge='right' style={{ height: '100%' }} />
             </View>
-
-            {canTranslate && <TranslationMenu key={`${track?.uri}:${target}`} supported={supportsPronunciation(lyrics!.language)}
-                controlsVisible={controlsVisible} controlsOpacity={controlsOpacity} controlsHeight={controlsHeight}
-                reducedMotion={reducedMotion} onHold={holdSingControls} onRelease={releaseControls}
-                translation={translated.translation} pronunciation={translated.pronunciation}
-                translating={translated.translating} romanizing={translated.romanizing}
-                error={!target ? 'Enter a supported translation language code in settings, such as en or fr.' : translated.error}
-                onTranslation={translated.toggleTranslation} onPronunciation={translated.togglePronunciation} />}
         </View>);
 };
 

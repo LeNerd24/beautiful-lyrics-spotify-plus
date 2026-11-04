@@ -11,6 +11,7 @@ public class NativePlugin implements SpotifyPlusPlugin {
 
     @Override
     public void register(SpotifyPlusRegistry registry, SpotifyPlusContext context) {
+        LyricsOrientation.register(context);
         translation.register(context);
         generator.register(context);
         sing.register(registry, context);

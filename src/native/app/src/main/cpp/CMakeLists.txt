@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.22.1)
 project(lyricsaubio C CXX)
 
+find_package(shadowhook REQUIRED CONFIG)
+add_library(lyricsoboe SHARED oboe_jni.cpp)
+target_compile_features(lyricsoboe PRIVATE cxx_std_20)
+target_link_libraries(lyricsoboe shadowhook::shadowhook dl log)
+
 add_library(lyricsspectral SHARED spectral_jni.cpp)
 target_compile_features(lyricsspectral PRIVATE cxx_std_17)
 target_compile_options(lyricsspectral PRIVATE -O3 -ffp-contract=off)

@@ -8,6 +8,7 @@ import android.graphics.*;
 import android.text.TextUtils;
 import android.view.View;
 import android.view.WindowInsets;
+import android.view.WindowInsetsController;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.MotionEvent;
@@ -85,13 +86,19 @@ public final class LyricsChrome {
     public static final class SheetWindow extends SpotifyPlusComponent<SheetWindowView> {
         public String getName() { return "LyricsWindow"; }
         public SheetWindowView createView(Context context, SpotifyPlusContext spotify) { return new SheetWindowView(context); }
+
+        public void updateProps(SheetWindowView view, JSONObject old, JSONObject props) {
+            view.landscape = props.optBoolean("landscape", false);
+            view.updateStatusBar();
+        }
     }
 
     @SuppressWarnings("deprecation")
     public static final class SheetWindowView extends View {
         Window window;
-        int statusColor, uiFlags, windowFlags;
-        boolean contrast;
+        Activity activity;
+        int statusColor, uiFlags, windowFlags, cutoutMode;
+        boolean contrast, landscape;
 
         SheetWindowView(Context context) {
             super(context);
@@ -106,11 +113,13 @@ public final class LyricsChrome {
             while (context instanceof ContextWrapper && !(context instanceof Activity)) context = ((ContextWrapper) context).getBaseContext();
             if (!(context instanceof Activity) || window != null) return;
 
-            window = ((Activity) context).getWindow();
+            activity = (Activity) context;
+            window = activity.getWindow();
             statusColor = window.getStatusBarColor();
             uiFlags = window.getDecorView().getSystemUiVisibility();
             windowFlags = window.getAttributes().flags;
             contrast = window.isStatusBarContrastEnforced();
+            cutoutMode = window.getAttributes().layoutInDisplayCutoutMode;
 
             window.setDecorFitsSystemWindows(false);
             window.getDecorView().setSystemUiVisibility(uiFlags | SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | SYSTEM_UI_FLAG_LAYOUT_STABLE);
@@ -118,12 +127,33 @@ public final class LyricsChrome {
             window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
             window.setStatusBarColor(Color.TRANSPARENT);
             window.setStatusBarContrastEnforced(false);
+            setCutoutMode(WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS);
+            updateStatusBar();
             window.getDecorView().requestApplyInsets();
+            LyricsOrientation.unlock(activity);
+        }
+
+        void updateStatusBar() {
+            WindowInsetsController controller = window == null ? null : window.getInsetsController();
+            if (controller == null) return;
+
+            if (landscape) controller.hide(WindowInsets.Type.statusBars());
+            else controller.show(WindowInsets.Type.statusBars());
+        }
+
+        void setCutoutMode(int mode) {
+            WindowManager.LayoutParams attributes = window.getAttributes();
+            attributes.layoutInDisplayCutoutMode = mode;
+            window.setAttributes(attributes);
         }
 
         @Override
         protected void onDetachedFromWindow() {
             if (window != null) {
+                LyricsOrientation.restore(activity);
+                WindowInsetsController controller = window.getInsetsController();
+                if (controller != null) controller.show(WindowInsets.Type.statusBars());
+                setCutoutMode(cutoutMode);
                 window.setDecorFitsSystemWindows((uiFlags & SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN) == 0);
                 window.getDecorView().setSystemUiVisibility(uiFlags);
                 window.setFlags(windowFlags, WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS | WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
@@ -131,6 +161,7 @@ public final class LyricsChrome {
                 window.setStatusBarContrastEnforced(contrast);
                 window.getDecorView().requestApplyInsets();
                 window = null;
+                activity = null;
             }
 
             super.onDetachedFromWindow();
@@ -238,6 +269,9 @@ public final class LyricsChrome {
         public void updateProps(MarqueeTitleView view, JSONObject old, JSONObject props) {
             String text = props.optString("text", "");
             if (!TextUtils.equals(text, view.getText())) view.setText(text);
+
+            view.centered = props.optBoolean("centered", false);
+            view.invalidate();
         }
     }
 
@@ -245,6 +279,7 @@ public final class LyricsChrome {
         long startedAt;
         String marqueeText;
         float lastTextWidth = -1;
+        boolean centered;
 
         MarqueeTitleView(Context context) {
             super(context);
@@ -294,12 +329,13 @@ public final class LyricsChrome {
                 postInvalidateDelayed(16);
             }
 
+            float start = getPaddingLeft() + (centered && textWidth <= width ? (width - textWidth) / 2 : 0);
             Paint.FontMetrics font = paint.getFontMetrics();
             float baseline = (getHeight() - font.ascent - font.descent) / 2;
             int save = canvas.save();
 
             canvas.clipRect(getPaddingLeft(), 0, getWidth() - getPaddingRight(), getHeight());
-            canvas.drawText(text, getPaddingLeft() - offset, baseline, paint);
+            canvas.drawText(text, start - offset, baseline, paint);
 
             if (textWidth > width) canvas.drawText(text, getPaddingLeft() + textWidth + gap - offset, baseline, paint);
             canvas.restoreToCount(save);
@@ -311,7 +347,7 @@ public final class LyricsChrome {
         public InsetView createView(Context context, SpotifyPlusContext spotify) { return new InsetView(context); }
 
         public void updateProps(InsetView view, JSONObject old, JSONObject props) {
-            view.bottom = "bottom".equals(props.optString("edge", "top"));
+            view.edge = props.optString("edge", "top");
             view.requestLayout();
         }
     }
@@ -338,7 +374,7 @@ public final class LyricsChrome {
     }
 
     public static final class InsetView extends View {
-        boolean bottom;
+        String edge = "top";
         private final int[] location = new int[2];
 
         InsetView(Context context) {
@@ -363,6 +399,14 @@ public final class LyricsChrome {
         protected void onMeasure(int width, int height) {
             WindowInsets insets = getRootWindowInsets();
             int padding;
+            boolean bottom = "bottom".equals(edge);
+
+            if ("left".equals(edge) || "right".equals(edge)) {
+                android.graphics.Insets safe = insets == null ? android.graphics.Insets.NONE : insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+
+                setMeasuredDimension("left".equals(edge) ? safe.left : safe.right, 0);
+                return;
+            }
 
             if (insets != null) {
                 android.graphics.Insets safe = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());

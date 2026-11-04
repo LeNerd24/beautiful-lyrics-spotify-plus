@@ -1,5 +1,29 @@
 export const CONTROLS_IDLE_MS = 4000;
 export const CONTROLS_FADE_MS = 240;
+export const LANDSCAPE_ACTIONS_HEIGHT = 46;
+export const LINE_BLUR_KEY = 'lyrics-line-blur';
+export const DEFAULT_LINE_BLUR = 30;
+const MAX_LINE_BLUR_RADIUS = 10;
+
+export function lineBlurSetting(stored: unknown): number {
+    return typeof stored === 'number' && Number.isFinite(stored) ? Math.max(0, Math.min(100, stored)) : DEFAULT_LINE_BLUR;
+}
+
+export function lineBlurRadius(setting: number): number {
+    return lineBlurSetting(setting) / 100 * MAX_LINE_BLUR_RADIUS;
+}
+
+export interface LyricsViewportSize { width: number; height: number; }
+
+export function isLandscape({ width, height }: LyricsViewportSize): boolean {
+    return width > height;
+}
+
+export function landscapeLayout({ width, height }: LyricsViewportSize) {
+    const infoWidth = Math.round(width * 0.38);
+
+    return { infoWidth, artSize: Math.max(96, Math.min(infoWidth - 40, height - 164)) };
+}
 
 interface ControlsClock {
     setTimeout(callback: () => void, delay: number): ReturnType<typeof setTimeout>;

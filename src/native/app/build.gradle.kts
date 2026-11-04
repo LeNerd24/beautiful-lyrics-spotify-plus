@@ -11,6 +11,7 @@ android {
     namespace = "com.lenerd.lyricsnative"
     compileSdk = 35
     ndkVersion = "27.0.12077973"
+    buildFeatures { prefab = true }
 
     defaultConfig {
         applicationId = "com.lenerd.lyricsnative"
@@ -89,6 +90,7 @@ dependencies {
     compileOnly("androidx.core:core:1.15.0")
     implementation("com.microsoft.onnxruntime:onnxruntime-android-qnn:1.23.2")
     implementation("com.github.wendykierp:JTransforms:3.1")
+    implementation("com.bytedance.android:shadowhook:2.0.0")
     compileOnly("com.squareup.okhttp3:okhttp:4.12.0")
     compileOnly("com.google.code.gson:gson:2.13.1")
 }

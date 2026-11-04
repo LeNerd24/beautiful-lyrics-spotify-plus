@@ -29,6 +29,10 @@ final class NpuAlignment implements AutoCloseable {
     private OrtSession session;
     private OrtSession.SessionOptions options;
 
+    static final class BlankPrediction extends IllegalStateException {
+        BlankPrediction() { super("NPU alignment returned only blank frames"); }
+    }
+
     static boolean supported() { return Build.VERSION.SDK_INT >= 31 && Build.SOC_MODEL.toUpperCase(java.util.Locale.ROOT).startsWith("SM8750"); }
 
     static void ensure(SpotifyPlusContext context, File directory, OkHttpClient client, AlignmentModel.Progress progress, Consumer<String> log) throws InterruptedException {
@@ -146,7 +150,7 @@ final class NpuAlignment implements AutoCloseable {
                     }
                     if (best != 0) allBlank = false;
                 }
-                if (allBlank) throw new IllegalStateException("NPU alignment returned only blank frames");
+                if (allBlank) throw new BlankPrediction();
                 return logits;
             }
         }

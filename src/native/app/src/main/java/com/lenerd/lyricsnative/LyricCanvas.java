@@ -37,8 +37,9 @@ class LyricCanvasView extends FrameLayout implements Choreographer.FrameCallback
     final float density;
 
     long commandVersion = -1;
-    double follow, browse, lastPosition = -1;
-    boolean paused, effectsPaused, attached;
+    double follow, browse, lastPosition = -1, lineBlur;
+    int blurFocus = -1;
+    boolean paused, effectsPaused, attached, blurSnap;
 
     Window window;
     int previousMode, requestedMode;
@@ -58,6 +59,9 @@ class LyricCanvasView extends FrameLayout implements Choreographer.FrameCallback
         if (control == null) return;
 
         browse = control.optDouble("browseOffset", browse);
+        lineBlur = control.optDouble("lineBlur", lineBlur);
+        blurFocus = control.optInt("blurFocus", blurFocus);
+        blurSnap = control.optBoolean("blurSnap", blurSnap);
         boolean nextPaused = control.optBoolean("pauseFollow", false) || control.optBoolean("suspended", false);
         effectsPaused = control.optBoolean("pauseEffects", false);
 
@@ -190,6 +194,7 @@ class LyricCanvasView extends FrameLayout implements Choreographer.FrameCallback
         for (int index = 0; index < rows.size(); index++) {
             LyricRowView row = rows.get(index);
             row.animate(follow, timestamp);
+            row.updateBlur(row.blurrable && !paused && !effectsPaused && row.index != blurFocus ? lineBlur : 0, timestamp, blurSnap);
 
             if (row.estimatedHeight <= 0) continue;
 

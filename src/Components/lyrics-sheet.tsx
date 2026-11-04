@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View } from 'spotifyplus/react';
 import Animated, { cancelAnimation, measure, runOnJS, useAnimatedProps, useAnimatedStyle, useFrameCallback, useReducedMotion, useSharedValue, withSpring, withTiming } from 'spotifyplus/react/Animated';
 import { Gesture, GestureDetector } from 'spotifyplus/react/Gesture';
@@ -6,6 +6,7 @@ import { SpotifyPlus } from 'spotifyplus';
 import App from '../app';
 import { sheetDragOffset, shouldDismissSheet } from './sheet-model';
 import { LyricsWindow, LyricsSheetRoot } from './player-chrome';
+import { LyricsViewportSize, isLandscape } from './player-model';
 
 export default function LyricsSheet({ onClosed }: { onClosed: () => void }) {
     const root = useRef<View | null>(null);
@@ -13,13 +14,14 @@ export default function LyricsSheet({ onClosed }: { onClosed: () => void }) {
     const header = useRef<View | null>(null);
 
     const headerHeight = useSharedValue(160);
+    const [viewport, setViewport] = useState<LyricsViewportSize>();
     const height = useSharedValue(1000), density = useSharedValue(1);
     const offset = useSharedValue(1000), dragStart = useSharedValue(0), closing = useSharedValue(false);
     const pointerStart = useSharedValue(0), pointerLast = useSharedValue(0), pointerTime = useSharedValue(0);
     const dragVelocity = useSharedValue(0);
 
     const reducedMotion = useReducedMotion();
-    const lifecycle = useMemo(() => ({ opened: false, lastMeasure: -1 }), []);
+    const lifecycle = useMemo(() => ({ opened: false, lastMeasure: -1, width: 0, height: 0 }), []);
     const close = useCallback(() => {
         if (closing.value) return;
 
@@ -55,8 +57,18 @@ export default function LyricsSheet({ onClosed }: { onClosed: () => void }) {
         density.value = ruler.width / 100;
         height.value = bounds.height / density.value;
 
+        const width = bounds.width / density.value;
+
+        if (width !== lifecycle.width || height.value !== lifecycle.height) {
+            lifecycle.width = width;
+            lifecycle.height = height.value;
+            runOnJS(setViewport)({ width, height: height.value });
+        }
+
         const headerBounds = measure(header);
-        if (headerBounds && headerBounds.height > 0) headerHeight.value = headerBounds.height / density.value;
+
+        if (width > height.value) headerHeight.value = 0;
+        else if (headerBounds && headerBounds.height > 0) headerHeight.value = headerBounds.height / density.value;
 
         if (!lifecycle.opened) {
             lifecycle.opened = true;
@@ -119,9 +131,12 @@ export default function LyricsSheet({ onClosed }: { onClosed: () => void }) {
         return { opacity: 0.22 * Math.max(0, 1 - offset.value / height.value) };
     });
 
+    const landscape = !!viewport && isLandscape(viewport);
+    const cornerRadius = landscape ? 0 : 22;
+
     return (<GestureDetector gesture={headerGesture}>
         <LyricsSheetRoot ref={root} animatedProps={rootProps} style={{ width: '100%', height: '100%', elevation: 50 }}>
-            <LyricsWindow pointerEvents="none" style={{ position: 'absolute', width: 0, height: 0 }} />
+            <LyricsWindow landscape={landscape} pointerEvents="none" style={{ position: 'absolute', width: 0, height: 0 }} />
 
             <View ref={probe} pointerEvents="none" style={{ position: 'absolute', width: 100, height: 0 }} />
             <Animated.View pointerEvents="none" style={[{
@@ -129,8 +144,8 @@ export default function LyricsSheet({ onClosed }: { onClosed: () => void }) {
                 backgroundColor: '#000000'
             }, shadeStyle]} />
 
-            <Animated.View style={[{ flex: 1, borderTopLeftRadius: 22, borderTopRightRadius: 22, overflow: 'hidden' }, sheetStyle]}>
-                <App headerRef={header} />
+            <Animated.View style={[{ flex: 1, borderTopLeftRadius: cornerRadius, borderTopRightRadius: cornerRadius, overflow: 'hidden' }, sheetStyle]}>
+                <App headerRef={header} viewport={viewport} />
             </Animated.View>
         </LyricsSheetRoot>
     </GestureDetector>);

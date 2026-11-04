@@ -10,6 +10,34 @@ import static org.junit.Assert.*;
 
 @RunWith(AndroidJUnit4.class)
 public class PreparationArithmeticTest {
+    @Test
+    public void nativeResamplerMatchesJavaAtStreamingEdges() throws Exception {
+        var random = new Random(715);
+        for (int rate : new int[] {16000, 22050, 44100, 48000, 47999}) {
+            for (int length : new int[] {0, 1, 37, 21001, 100003}) {
+                float[] input = new float[length];
+                for (int i = 0; i < length; i++) input[i] = (float) (random.nextGaussian() * 0.1);
+                float[][] outputs = new float[2][(int) StreamingResampler.outputFrames(length, rate, 16000)];
+                for (int pass = 0; pass < 2; pass++) {
+                    float[] output = outputs[pass];
+                    int[] written = {0};
+                    var resampler = new StreamingResampler(rate, 16000, (samples, count) -> {
+                        System.arraycopy(samples, 0, output, written[0], count);
+                        written[0] += count;
+                    }, pass == 1);
+                    int packet = pass == 0 ? 113 : 17003;
+                    for (int at = 0; at < length; at += packet) {
+                        int end = Math.min(length, at + packet);
+                        resampler.write(Arrays.copyOfRange(input, at, end), end - at);
+                    }
+                    resampler.finish();
+                    assertEquals(output.length, written[0]);
+                }
+                assertArrayEquals("rate=" + rate + " length=" + length, outputs[0], outputs[1], 1e-7f);
+            }
+        }
+    }
+
     private static float[] resample(float[] input, int rate, boolean reference, int packet) throws Exception {
         float[] output = new float[(int) StreamingResampler.outputFrames(input.length, rate, 16000)];
         int[] written = {0};

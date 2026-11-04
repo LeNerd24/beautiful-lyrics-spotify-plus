@@ -1,6 +1,9 @@
 package com.lenerd.lyricsnative;
 
 import android.content.Context;
+import android.graphics.RenderEffect;
+import android.graphics.Shader;
+import android.os.Build;
 import android.view.ViewParent;
 import android.widget.FrameLayout;
 import com.lenerd.spotifyplus.sdk.SpotifyPlusComponent;
@@ -14,6 +17,7 @@ public class LyricRow extends SpotifyPlusComponent<LyricRowView> {
     public LyricRowView createView(Context context, SpotifyPlusContext spotify) { return new LyricRowView(context); }
     public void updateProps(LyricRowView view, JSONObject oldProps, JSONObject props) {
         view.index = props.optInt("rowIndex", view.index);
+        view.blurrable = props.optBoolean("blurrable", true);
         JSONArray geometry = props.optJSONArray("rowGeometry");
         if (geometry != null) {
             view.updateGeometry(geometry.optDouble(0, 0), geometry.optDouble(2, 0), geometry.optDouble(3, 0), geometry.optBoolean(4, true));
@@ -34,7 +38,8 @@ class LyricRowView extends FrameLayout {
     int index;
     double top, displayedTop, estimatedHeight, correction, layoutStartedAt = -1;
     boolean geometryInitialized, layoutAnimating;
-    boolean delayed;
+    boolean delayed, blurrable = true;
+    double blur, blurFrame = -1;
 
     LyricRowView(Context context) {
         super(context);
@@ -128,6 +133,21 @@ class LyricRowView extends FrameLayout {
             motion.snap(follow - correction, timestamp);
             motion.retarget(target, timestamp, 0, canvas.motion.stiffness, canvas.motion.damping);
         }
+    }
+
+    void updateBlur(double target, double timestamp, boolean snap) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return;
+
+        double elapsed = blurFrame < 0 ? 0 : Math.max(0, timestamp - blurFrame);
+        double next = snap ? target : blur + (target - blur) * (1 - Math.exp(-elapsed / 90));
+        blurFrame = timestamp;
+
+        if (Math.abs(next - target) < 0.05) next = target;
+        if (next == blur) return;
+
+        blur = next;
+        float radius = (float) (blur * density);
+        setRenderEffect(radius <= 0 ? null : RenderEffect.createBlurEffect(radius, radius, Shader.TileMode.DECAL));
     }
 
     void applyPosition() { setTranslationY((float) ((displayedTop + correction) * density)); }

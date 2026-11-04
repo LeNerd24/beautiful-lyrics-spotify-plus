@@ -2,6 +2,7 @@ import { ScrollSpring } from './scroll-spring';
 export const LYRIC_GAP = 42;
 export const ESTIMATED_LINE_HEIGHT = 96;
 export const ALIGN_POSITION = 0.25;
+export const LANDSCAPE_ALIGN_POSITION = 0.16;
 export const TOP_PADDING = 24;
 export const FOLLOW_RESUME_MS = 500;
 export const INTERLUDE_EXIT_MS = 750;
@@ -28,6 +29,7 @@ export type ScrollLayout = {
     tops: number[];
     heights: number[];
     viewportHeight: number;
+    alignPosition: number;
     maxOffset: number;
     transition?: {
         startedAt: number;
@@ -54,7 +56,7 @@ export function rowPlaybackPosition(positionMs: number, startMs: number, endMs: 
     return positionMs < startMs ? startMs - 1 : Math.min(positionMs, endMs + 1500);
 }
 
-export function buildScrollLayout(heights: number[], viewportHeight: number, interludes: boolean[] = [], expandedInterlude = -1): ScrollLayout {
+export function buildScrollLayout(heights: number[], viewportHeight: number, interludes: boolean[] = [], expandedInterlude = -1, alignPosition = ALIGN_POSITION): ScrollLayout {
     'worklet';
 
     const tops: number[] = [];
@@ -82,7 +84,8 @@ export function buildScrollLayout(heights: number[], viewportHeight: number, int
         tops,
         heights: layoutHeights,
         viewportHeight,
-        maxOffset: Math.max(0, top + viewportHeight * (1 - ALIGN_POSITION) - viewportHeight),
+        alignPosition,
+        maxOffset: Math.max(0, top + viewportHeight * (1 - alignPosition) - viewportHeight),
     };
 }
 
@@ -144,7 +147,7 @@ export function canFollowLine(layout: ScrollLayout, previousIndex: number, nextI
 export function lineScrollOffset(layout: ScrollLayout, index: number): number {
     'worklet';
 
-    return Math.max(0, Math.min(layout.maxOffset, (layout.tops[index] ?? 0) - layout.viewportHeight * ALIGN_POSITION));
+    return Math.max(0, Math.min(layout.maxOffset, (layout.tops[index] ?? 0) - layout.viewportHeight * layout.alignPosition));
 }
 
 export function firstLineAtOffset(layout: ScrollLayout, offset: number): number {

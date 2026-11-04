@@ -21,6 +21,8 @@ public final class SingEngine implements SpotifyPlusPlugin {
     private SpotifyPlusHooks hooks;
     private SpotifyPlusContext context;
     private volatile VocalSeparator separator;
+    private OboeSingEngine oboe;
+    private volatile boolean usingOboe;
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> new Thread(r, "SpotifySing-inference"));
     private final ScheduledExecutorService outputWorker = Executors.newSingleThreadScheduledExecutor(r -> new Thread(r, "SpotifySing-output"));
@@ -50,6 +52,7 @@ public final class SingEngine implements SpotifyPlusPlugin {
     public void register(SpotifyPlusRegistry registry, SpotifyPlusContext context) {
         this.context = context;
         hooks = context.getHooks();
+        oboe = new OboeSingEngine(() -> separator, value -> status = value, this::fail);
 
         context.getEvents().on("lyrics.sing.setTimingOffset", payload -> {
             if (payload instanceof Number) setLyricAdvanceMs(((Number) payload).intValue());
@@ -84,7 +87,14 @@ public final class SingEngine implements SpotifyPlusPlugin {
                 }
 
                 separator = loaded;
-                status = "Ready · waiting for local Spotify audio";
+                try {
+                    oboe.install();
+                    oboe.enable(usingOboe && enabled, gain);
+                } catch (Exception | LinkageError error) {
+                    Log.w(TAG, "Oboe audio hooks unavailable", error);
+                    if (usingOboe) status = "Oboe audio hooks unavailable";
+                }
+                if (!usingOboe || oboe.ready()) status = "Ready · waiting for local Spotify audio";
                 Log.i(TAG, "MODEL_READY model=uvr spinning=false warmup_ms=" + inferenceMs + " window_ms=" + (1000.0 * SpectralTransform.SAMPLES / 44100));
             } catch (Throwable error) {
                 if (loaded != null) {
@@ -100,6 +110,8 @@ public final class SingEngine implements SpotifyPlusPlugin {
 
     private void installHooks() throws Exception {
         Class<?> type = hooks.findClass("com.spotify.playbacknative.AudioDriver");
+        usingOboe = hooks.findField(type, "sUsingOboe").getBoolean(null);
+        Log.i(TAG, "RENDERER=" + (usingOboe ? "Oboe" : "Java AudioDriver"));
         Map<String, Method> methods = SingAudioContract.resolve(type, AudioTrack.class);
 
         write = methods.get("write");
@@ -112,6 +124,7 @@ public final class SingEngine implements SpotifyPlusPlugin {
         if (progress.getReturnType() != long.class || !java.lang.reflect.Modifier.isStatic(progress.getModifiers())) throw new NoSuchMethodException("Unsupported Spotify playback clock: " + progress);
 
         hooks.before(write, call -> {
+            if (usingOboe) rendererChanged(false);
             if (closed || !enabled || separator == null) return;
 
             byte[] input = (byte[]) call.getArgs()[0];
@@ -158,6 +171,10 @@ public final class SingEngine implements SpotifyPlusPlugin {
         });
 
         hooks.after(progress, call -> {
+            if (usingOboe && enabled && oboe.ready() && call.getThrowable() == null && (long) call.getResult() >= 0) {
+                call.setResult(Math.max(0, (long) call.getResult() - oboe.delayMs() + lyricAdvanceMs));
+                return;
+            }
             RealtimeBuffer current = mixer;
 
             if (enabled && current != null && current.rendered() > 0 && call.getThrowable() == null && (long) call.getResult() >= 0) {
@@ -195,10 +212,20 @@ public final class SingEngine implements SpotifyPlusPlugin {
 
         try {
             Class<?> oboe = hooks.findClass("com.spotify.playbacknative.OboeRenderer");
-            hooks.before(hooks.findMethod(oboe, "onAudioTrackCreated"), call -> status = "Oboe audio path active · Java PCM unavailable");
+            hooks.before(hooks.findMethod(oboe, "onAudioTrackCreated"), call -> rendererChanged(true));
+            hooks.before(hooks.findMethod(oboe, "onFlushStart"), call -> this.oboe.reset());
+            hooks.before(hooks.findMethod(oboe, "onAudioTrackDestroyed"), call -> this.oboe.reset());
         } catch (ReflectiveOperationException ignored) { }
 
         Log.i(TAG, "HOOKS_READY single PCM queue; original AudioTrack clock; seek reset; exact EOF drain");
+    }
+
+    private void rendererChanged(boolean value) {
+        if (closed || usingOboe == value) return;
+        usingOboe = value;
+        reset();
+        oboe.enable(value && enabled, gain);
+        Log.i(TAG, "RENDERER=" + (value ? "Oboe" : "Java AudioDriver"));
     }
 
     private RealtimeBuffer bind(Object owner) throws Throwable {
@@ -263,7 +290,8 @@ public final class SingEngine implements SpotifyPlusPlugin {
                         if (window == null) break;
 
                         long started = System.nanoTime();
-                        float[][] vocals = separator.separate(window.pcm());
+                        float[][] vocals;
+                        synchronized (separator) { vocals = separator.separate(window.pcm()); }
                         inferenceMs = (System.nanoTime() - started) / 1e6;
                         windows++;
                         current.publish(window, vocals);
@@ -331,14 +359,16 @@ public final class SingEngine implements SpotifyPlusPlugin {
         mixer = null;
         driver = null;
         endDelivered = false;
+        if (oboe != null) oboe.reset();
     }
 
     private void fail(String message, Throwable error) {
-        boolean hadPending = mixer != null && mixer.captured() > mixer.rendered();
+        boolean hadPending = mixer != null && mixer.captured() > mixer.rendered() || usingOboe && oboe != null && oboe.delayMs() > 0;
         long resumeMs = hadPending ? audiblePositionMs() : 0;
 
         status = message + ": " + error.getClass().getSimpleName();
         enabled = false;
+        if (oboe != null) oboe.enable(false, gain);
         reset();
         Log.e(TAG, message, error);
 
@@ -366,10 +396,11 @@ public final class SingEngine implements SpotifyPlusPlugin {
         enabled = gain < 1;
 
         if (mixer != null) mixer.setGain(gain);
+        oboe.enable(usingOboe && enabled, gain);
     }
 
     public boolean enabled() { return enabled; }
-    public boolean ready() { return separator != null && !closed && Build.VERSION.SDK_INT >= 31; }
+    public boolean ready() { return separator != null && !closed && Build.VERSION.SDK_INT >= 31 && (!usingOboe || oboe.ready()); }
     public float gain() { return gain; }
     public int lyricAdvanceMs() { return lyricAdvanceMs; }
 
@@ -383,7 +414,7 @@ public final class SingEngine implements SpotifyPlusPlugin {
 
     private long audiblePositionMs() {
         try {
-            return Math.max(0, (long) hooks.invokeOriginal(progress, null));
+            return Math.max(0, (long) hooks.invokeOriginal(progress, null) - (usingOboe ? oboe.delayMs() : 0));
         } catch (Throwable error) {
             return Math.max(0, context.getApi().Player.getState().optLong("positionMs", 0) - lyricAdvanceMs);
         }
@@ -397,6 +428,7 @@ public final class SingEngine implements SpotifyPlusPlugin {
         synchronized (this) {
             reset();
             enabled = value;
+            oboe.enable(usingOboe && enabled, gain);
         }
 
         boolean paused = context.getApi().Player.getState().optBoolean("isPaused", false);
@@ -415,6 +447,7 @@ public final class SingEngine implements SpotifyPlusPlugin {
     public void setGain(float value) {
         gain = Math.max(0, Math.min(1, value));
         if (mixer != null) mixer.setGain(gain);
+        oboe.gain(gain);
     }
 
     public void commitGain() {
@@ -435,6 +468,7 @@ public final class SingEngine implements SpotifyPlusPlugin {
         closed = true;
         enabled = false;
         reset();
+        oboe.close();
         outputWorker.shutdownNow();
 
         worker.execute(() -> {

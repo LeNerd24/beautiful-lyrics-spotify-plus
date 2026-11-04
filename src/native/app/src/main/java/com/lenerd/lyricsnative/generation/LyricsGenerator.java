@@ -126,8 +126,10 @@ public final class LyricsGenerator implements AutoCloseable {
     }
 
     private void generateLocally(String trackId, double position, Map<String, String> readings, SpotifySongAudioSource.Ticket sourceTicket) throws Exception {
+        long generationStarted = System.nanoTime();
         progress(trackId, "lyrics", "Finding lyrics");
         JSONObject sourceLyrics = loadSourceLyrics(trackId);
+        Log.i(TAG, "PERF source_lyrics elapsed_ms=" + (System.nanoTime() - generationStarted) / 1e6);
         JSONArray lines = sourceLyrics.getJSONArray("Content");
         events.emit("lyrics.generate.begin", new JSONObject().put("trackId", trackId).put("sessionId", sessionId).put("source", sourceLyrics));
 
@@ -136,25 +138,33 @@ public final class LyricsGenerator implements AutoCloseable {
 
         File source = new File(directory, "source"), pcm = new File(directory, "source.pcm");
         ExecutorService preparation = Executors.newSingleThreadExecutor(r -> new Thread(r, "LyricsAudioPreparation"));
+        GenerationModels models = new GenerationModels();
         Future<File> modelDownload = preparation.submit(() -> {
             File model = AlignmentModel.ensure(modelDirectory(), client, percent -> progress(trackId, "model", "Downloading alignment model " + percent + "%"), message -> Log.w(TAG, message));
             NpuAlignment.ensure(context, modelDirectory(), client, percent -> progress(trackId, "model", "Downloading NPU alignment model " + percent + "%"), message -> Log.w(TAG, message));
+            models.initialize(context, model);
             return model;
         });
 
         try {
             progress(trackId, "downloading", "Reading song");
+            long readingStarted = System.nanoTime();
             try {
                 audioSource.writeCurrentTrack(sourceTicket, source, message -> progress(trackId, "downloading", message));
             } catch (IOException error) {
                 throw new GenerationException(error.getMessage(), error);
             }
+            Log.i(TAG, "PERF source_audio elapsed_ms=" + (System.nanoTime() - readingStarted) / 1e6 + " bytes=" + source.length());
 
             progress(trackId, "decoding", "Decoding audio");
+            long decodingStarted = System.nanoTime();
             AudioCodec.Decoded decoded = AudioCodec.decodeToPcm(source, pcm);
+            Log.i(TAG, "PERF decode elapsed_ms=" + (System.nanoTime() - decodingStarted) / 1e6 + " frames=" + decoded.frames() + " rate=" + decoded.rate());
             source.delete();
 
-            File model = ChunkPipeline.await(modelDownload);
+            long modelWaitStarted = System.nanoTime();
+            ChunkPipeline.await(modelDownload);
+            Log.i(TAG, "PERF model_wait elapsed_ms=" + (System.nanoTime() - modelWaitStarted) / 1e6 + " startup_ms=" + (System.nanoTime() - generationStarted) / 1e6);
             List<GenerationPlan.Line> planLines = new ArrayList<>();
             double duration = decoded.frames() * 1000.0 / decoded.rate();
             Log.i(TAG, "Decoded recording: rate=" + decoded.rate() + "; frames=" + decoded.frames() + "; durationMs=" + duration);
@@ -176,7 +186,9 @@ public final class LyricsGenerator implements AutoCloseable {
             int[] completed = {0};
 
             progress(trackId, "generating", "Starting lyrics generation");
-            try (RandomAccessFile file = new RandomAccessFile(pcm, "r"); VocalSeparator separator = VocalSeparator.forGeneration(context); AlignmentModel aligner = new AlignmentModel(model, context)) {
+            try (RandomAccessFile file = new RandomAccessFile(pcm, "r")) {
+                VocalSeparator separator = models.separator;
+                AlignmentModel aligner = models.aligner;
                 Log.i(TAG, "Generation separator backend=" + separator.backend());
                 if (file.length() > Integer.MAX_VALUE) throw new GenerationException("This song is too long to generate lyrics for");
                 ShortBuffer samples = file.getChannel().map(FileChannel.MapMode.READ_ONLY, 0, file.length()).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer();
@@ -184,39 +196,49 @@ public final class LyricsGenerator implements AutoCloseable {
                 OfflineSeparator.WindowCache separatedWindows = new OfflineSeparator.WindowCache();
                 List<GenerationPlan.Chunk> chunks = GenerationPlan.create(planLines, currentPosition(trackId, position), duration);
                 long[] nextSection = {System.nanoTime()};
+                long[] firstPublished = {0};
 
-                ChunkPipeline.run(chunks, chunk -> prepareChunk(samples, decoded, chunk, separator, separatedWindows), (chunk, prepared) -> {
-                    Log.i(TAG, String.format(Locale.ROOT, "PERF section_ready start_ms=%.2f end_ms=%.2f lines=%d wait_ms=%.2f", chunk.start(), chunk.end(), chunk.lines().size(), (System.nanoTime() - nextSection[0]) / 1e6));
-                    LineAligner.Audio audio = new LineAligner.Audio() {
-                        @Override
-                        public int length() { return prepared.vocals.length; }
+                try (OrderedTasks<AlignedLine> alignments = new OrderedTasks<>(aligner.parallelism(), aligned -> {
+                    long publishing = System.nanoTime();
+                    if (completed[0] == 0) firstPublished[0] = publishing;
+                    generated[aligned.index] = aligned.line;
+                    JSONObject vocal = SyllableLyrics.build(List.of(aligned.line)).getJSONArray("Content").getJSONObject(0);
+                    events.emit("lyrics.generate.line", new JSONObject().put("trackId", trackId).put("sessionId", sessionId).put("index", aligned.index).put("line", vocal).put("completed", ++completed[0]).put("total", planLines.size()));
+                    Log.i(TAG, String.format(Locale.ROOT, "PERF line_done index=%d alignment_ms=%.2f publish_ms=%.2f", aligned.index, aligned.alignmentMs, (System.nanoTime() - publishing) / 1e6));
+                })) {
+                    ChunkPipeline.run(chunks, chunk -> prepareChunk(samples, decoded, chunk, separator, separatedWindows), (chunk, prepared) -> {
+                        Log.i(TAG, String.format(Locale.ROOT, "PERF section_ready start_ms=%.2f end_ms=%.2f lines=%d wait_ms=%.2f", chunk.start(), chunk.end(), chunk.lines().size(), (System.nanoTime() - nextSection[0]) / 1e6));
+                        LineAligner.Audio audio = new LineAligner.Audio() {
+                            @Override
+                            public int length() { return prepared.vocals.length; }
 
-                        @Override
-                        public float[] slice(int start, int end) { return java.util.Arrays.copyOfRange(prepared.vocals, start, end); }
-                    };
-                    LineAligner lineAligner = new LineAligner(audio, aligner::emissions, hyphenator, prepared.analysis, new AlignmentTuning(), message -> Log.i(TAG, message), DEBUG_ALIGNMENT).withReadings(readings);
+                            @Override
+                            public float[] slice(int start, int end) { return java.util.Arrays.copyOfRange(prepared.vocals, start, end); }
+                        };
+                        LineAligner lineAligner = new LineAligner(audio, aligner::emissions, hyphenator, prepared.analysis, new AlignmentTuning(), message -> Log.i(TAG, message), DEBUG_ALIGNMENT).withReadings(readings);
 
-                    for (GenerationPlan.Line planned : chunk.lines()) {
-                        if (closed || Thread.currentThread().isInterrupted()) throw new InterruptedException();
-                        JSONObject line = lines.getJSONObject(planned.index());
-                        List<SyllableLyrics.Token> tokens = SyllableLyrics.tokenize(line.getString("Text"));
-                        List<String> words = new ArrayList<>();
-                        for (SyllableLyrics.Token token : tokens) words.add(token.text());
+                        for (GenerationPlan.Line planned : chunk.lines()) {
+                            if (closed || Thread.currentThread().isInterrupted()) throw new InterruptedException();
+                            JSONObject line = lines.getJSONObject(planned.index());
+                            List<SyllableLyrics.Token> tokens = SyllableLyrics.tokenize(line.getString("Text"));
+                            List<String> words = new ArrayList<>();
+                            for (SyllableLyrics.Token token : tokens) words.add(token.text());
 
-                        long started = System.nanoTime();
-                        Log.i(TAG, String.format(Locale.ROOT, "PERF line_begin index=%d start_ms=%.2f end_ms=%.2f words=%d", planned.index(), planned.start(), planned.end(), words.size()));
-                        List<LineAligner.Word> timed = lineAligner.alignLine(words, planned.start() - prepared.offset, planned.end() - prepared.offset);
-                        long alignedAt = System.nanoTime();
-                        Log.i(TAG, String.format(Locale.ROOT, "Aligned line %d in %.2fs", planned.index(), (System.nanoTime() - started) / 1e9));
-                        for (int w = 0; w < timed.size(); w++) timed.set(w, timed.get(w).shifted(prepared.offset));
-                        SyllableLyrics.Line aligned = new SyllableLyrics.Line(line.optBoolean("OppositeAligned"), tokens, timed);
-                        generated[planned.index()] = aligned;
-                        JSONObject vocal = SyllableLyrics.build(List.of(aligned)).getJSONArray("Content").getJSONObject(0);
-                        events.emit("lyrics.generate.line", new JSONObject().put("trackId", trackId).put("sessionId", sessionId).put("index", planned.index()).put("line", vocal).put("completed", ++completed[0]).put("total", planLines.size()));
-                        Log.i(TAG, String.format(Locale.ROOT, "PERF line_done index=%d alignment_ms=%.2f publish_ms=%.2f", planned.index(), (alignedAt - started) / 1e6, (System.nanoTime() - alignedAt) / 1e6));
-                    }
-                    nextSection[0] = System.nanoTime();
-                }, preparation);
+                            alignments.submit(() -> {
+                                if (closed || Thread.currentThread().isInterrupted()) throw new InterruptedException();
+                                long started = System.nanoTime();
+                                Log.i(TAG, String.format(Locale.ROOT, "PERF line_begin index=%d start_ms=%.2f end_ms=%.2f words=%d", planned.index(), planned.start(), planned.end(), words.size()));
+                                List<LineAligner.Word> timed = lineAligner.alignLine(words, planned.start() - prepared.offset, planned.end() - prepared.offset);
+                                double alignmentMs = (System.nanoTime() - started) / 1e6;
+                                for (int w = 0; w < timed.size(); w++) timed.set(w, timed.get(w).shifted(prepared.offset));
+                                return new AlignedLine(planned.index(), new SyllableLyrics.Line(line.optBoolean("OppositeAligned"), tokens, timed), alignmentMs);
+                            });
+                        }
+                        nextSection[0] = System.nanoTime();
+                    }, preparation);
+                    alignments.finish();
+                    Log.i(TAG, "PERF line_counter_complete elapsed_ms=" + (System.nanoTime() - firstPublished[0]) / 1e6 + " lines=" + completed[0]);
+                }
             }
 
             List<SyllableLyrics.Line> ordered = new ArrayList<>();
@@ -226,6 +248,7 @@ public final class LyricsGenerator implements AutoCloseable {
 
             progress(trackId, "uploading", "Uploading lyrics");
             submit(trackId, lyrics);
+            Log.i(TAG, "PERF generation_complete elapsed_ms=" + (System.nanoTime() - generationStarted) / 1e6 + " lines=" + planLines.size());
             result(trackId, "complete", null);
         } finally {
             client.dispatcher().cancelAll();
@@ -239,10 +262,44 @@ public final class LyricsGenerator implements AutoCloseable {
                 interrupted = true;
             }
             if (interrupted) Thread.currentThread().interrupt();
+            try {
+                models.close();
+            } catch (Exception error) {
+                Log.w(TAG, "Could not close generation models", error);
+            }
             for (File file : new File[] {source, pcm}) file.delete();
             directory.delete();
         }
     }
+
+    private static final class GenerationModels implements AutoCloseable {
+        private VocalSeparator separator;
+        private AlignmentModel aligner;
+        private boolean closed;
+
+        synchronized void initialize(SpotifyPlusContext context, File model) throws Exception {
+            if (closed || Thread.currentThread().isInterrupted()) throw new InterruptedException();
+            long started = System.nanoTime();
+            separator = VocalSeparator.forGeneration(context);
+            if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
+            aligner = new AlignmentModel(model, context);
+            Log.i(TAG, "PERF model_setup elapsed_ms=" + (System.nanoTime() - started) / 1e6);
+        }
+
+        @Override
+        public synchronized void close() throws Exception {
+            closed = true;
+            try {
+                if (aligner != null) aligner.close();
+            } finally {
+                aligner = null;
+                if (separator != null) separator.close();
+                separator = null;
+            }
+        }
+    }
+
+    private record AlignedLine(int index, SyllableLyrics.Line line, double alignmentMs) { }
 
     private record PreparedChunk(float[] vocals, MusicAnalysis analysis, double offset) { }
 

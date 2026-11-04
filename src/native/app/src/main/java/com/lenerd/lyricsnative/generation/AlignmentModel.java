@@ -38,7 +38,8 @@ final class AlignmentModel implements AutoCloseable {
     private final OrtEnvironment environment = OrtEnvironment.getEnvironment();
     private final OrtSession session;
     private final OrtSession.SessionOptions options;
-    private NpuAlignment npu;
+    private volatile NpuAlignment npu;
+    private final Object npuLock = new Object(), cpuLock = new Object();
 
     AlignmentModel(File model) throws OrtException {
         this(model, null);
@@ -67,6 +68,8 @@ final class AlignmentModel implements AutoCloseable {
         int index = LETTERS.indexOf(Character.toUpperCase(c));
         return index < 0 ? -1 : index + 5;
     }
+
+    int parallelism() { return npu == null ? 1 : 4; }
 
     static File ensure(File directory, OkHttpClient client, Progress progress, java.util.function.Consumer<String> log) throws Exception {
         File model = new File(directory, "wav2vec2-base-960h-" + REVISION.substring(0, 8) + ".int8.onnx");
@@ -146,28 +149,37 @@ final class AlignmentModel implements AutoCloseable {
         float[] normalized = new float[audio.length];
         for (int i = 0; i < audio.length; i++) normalized[i] = (float) ((audio[i] - mean) * scale);
 
-        if (npu != null && NpuAlignment.accepts(audio.length) && variance > 1e-10) {
-            try {
-                float[][] result = npu.logits(normalized);
-                Log.i("LyricsGeneration", String.format(java.util.Locale.ROOT, "PERF emissions backend=NPU audio_ms=%.2f elapsed_ms=%.2f", audio.length * 1000.0 / SAMPLE_RATE, (System.nanoTime() - started) / 1e6));
-                return result;
-            } catch (OrtException | IllegalStateException | LinkageError error) {
-                reason = "npu_failure";
-                Log.w("LyricsGeneration", "NPU alignment failed; retrying this and subsequent windows on CPU", error);
-                try {
-                    npu.close();
-                } catch (OrtException | RuntimeException | LinkageError cleanup) {
-                    error.addSuppressed(cleanup);
+        if (NpuAlignment.accepts(audio.length) && variance > 1e-10) {
+            synchronized (npuLock) {
+                if (npu != null) {
+                    try {
+                        float[][] result = npu.logits(normalized);
+                        Log.i("LyricsGeneration", String.format(java.util.Locale.ROOT, "PERF emissions backend=NPU audio_ms=%.2f elapsed_ms=%.2f", audio.length * 1000.0 / SAMPLE_RATE, (System.nanoTime() - started) / 1e6));
+                        return result;
+                    } catch (NpuAlignment.BlankPrediction error) {
+                        reason = "blank_prediction";
+                        Log.i("LyricsGeneration", "NPU alignment blank for this window; retrying on CPU without disabling acceleration");
+                    } catch (OrtException | IllegalStateException | LinkageError error) {
+                        reason = "npu_failure";
+                        Log.w("LyricsGeneration", "NPU alignment failed; retrying this and subsequent windows on CPU", error);
+                        try {
+                            npu.close();
+                        } catch (OrtException | RuntimeException | LinkageError cleanup) {
+                            error.addSuppressed(cleanup);
+                        }
+                        npu = null;
+                    }
                 }
-                npu = null;
             }
         }
 
-        try (OnnxTensor input = OnnxTensor.createTensor(environment, FloatBuffer.wrap(normalized), new long[] {1, audio.length});
-            OrtSession.Result result = session.run(Map.of("input_values", input))) {
-            float[][][] logits = (float[][][]) result.get(0).getValue();
-            Log.i("LyricsGeneration", String.format(java.util.Locale.ROOT, "PERF emissions backend=CPU reason=%s audio_ms=%.2f elapsed_ms=%.2f", reason, audio.length * 1000.0 / SAMPLE_RATE, (System.nanoTime() - started) / 1e6));
-            return logits[0];
+        synchronized (cpuLock) {
+            try (OnnxTensor input = OnnxTensor.createTensor(environment, FloatBuffer.wrap(normalized), new long[] {1, audio.length});
+                OrtSession.Result result = session.run(Map.of("input_values", input))) {
+                float[][][] logits = (float[][][]) result.get(0).getValue();
+                Log.i("LyricsGeneration", String.format(java.util.Locale.ROOT, "PERF emissions backend=CPU reason=%s audio_ms=%.2f elapsed_ms=%.2f", reason, audio.length * 1000.0 / SAMPLE_RATE, (System.nanoTime() - started) / 1e6));
+                return logits[0];
+            }
         }
     }
 

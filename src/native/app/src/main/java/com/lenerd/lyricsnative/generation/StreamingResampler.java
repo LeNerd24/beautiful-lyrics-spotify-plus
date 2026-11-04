@@ -10,13 +10,22 @@ final class StreamingResampler {
     private static final int ZERO_CROSSINGS = 16, TABLE_RESOLUTION = 512;
     private static final double ROLLOFF = 0.94, KAISER_BETA = 8.6;
     private static final java.util.concurrent.ConcurrentHashMap<Long, Kernel> KERNELS = new java.util.concurrent.ConcurrentHashMap<>();
+    private static volatile boolean nativeAvailable;
+    static {
+        try {
+            System.loadLibrary("lyricsspectral");
+            nativeAvailable = true;
+        } catch (LinkageError | SecurityException ignored) { }
+    }
 
     private final double step, cutoff, halfWidth;
     private final int inputRate, outputRate;
     private final float[] kernel;
     private final double[][] phases;
+    private final double[] nativePhases;
     private final int radius;
     private final Sink sink;
+    private final boolean useNative;
     private final float[] output = new float[4096];
 
     private float[] buffer = new float[1 << 15];
@@ -24,9 +33,14 @@ final class StreamingResampler {
     private int buffered, outputCount;
 
     StreamingResampler(int inputRate, int outputRate, Sink sink) {
+        this(inputRate, outputRate, sink, true);
+    }
+
+    StreamingResampler(int inputRate, int outputRate, Sink sink, boolean useNative) {
         this.inputRate = inputRate;
         this.outputRate = outputRate;
         this.sink = sink;
+        this.useNative = useNative;
         step = inputRate / (double) outputRate;
         cutoff = Math.min(1.0, outputRate / (double) inputRate) * ROLLOFF;
         halfWidth = ZERO_CROSSINGS / cutoff;
@@ -34,6 +48,7 @@ final class StreamingResampler {
         Kernel shared = KERNELS.computeIfAbsent(((long) inputRate << 32) | outputRate, ignored -> new Kernel(inputRate, outputRate, cutoff, halfWidth));
         kernel = shared.table;
         phases = shared.phases;
+        nativePhases = shared.flatPhases;
         radius = shared.radius;
     }
 
@@ -55,6 +70,26 @@ final class StreamingResampler {
 
     private void produce(boolean last) throws Exception {
         long total = last ? outputFrames(received, inputRate, outputRate) : Long.MAX_VALUE;
+
+        if (useNative && nativeAvailable && nativePhases != null) {
+            while (produced < total) {
+                int count;
+                try {
+                    count = resample(buffer, nativePhases, phases[0].length, phases.length, radius, base, received, produced, inputRate, outputRate, step, halfWidth, last, output, outputCount, (int) Math.min(output.length - outputCount, total - produced));
+                } catch (LinkageError error) {
+                    nativeAvailable = false;
+                    break;
+                }
+                if (count == 0) break;
+                produced += count;
+                outputCount += count;
+                if (outputCount == output.length) {
+                    sink.write(output, outputCount);
+                    outputCount = 0;
+                }
+            }
+            if (nativeAvailable) return;
+        }
 
         while (produced < total) {
             double t = produced * step;
@@ -91,6 +126,8 @@ final class StreamingResampler {
         }
     }
 
+    private static native int resample(float[] input, double[] phases, int width, int phaseCount, int radius, long base, long received, long produced, int inputRate, int outputRate, double step, double halfWidth, boolean last, float[] output, int offset, int capacity);
+
     static long outputFrames(long inputFrames, int inputRate, int outputRate) {
         long scaled = Math.multiplyExact(inputFrames, (long) outputRate);
         return scaled / inputRate + (scaled % inputRate == 0 ? 0 : 1);
@@ -124,6 +161,7 @@ final class StreamingResampler {
     private static final class Kernel {
         final float[] table;
         final double[][] phases;
+        final double[] flatPhases;
         final int radius;
 
         Kernel(int inputRate, int outputRate, double cutoff, double halfWidth) {
@@ -141,6 +179,7 @@ final class StreamingResampler {
             while (b != 0) { int remainder = a % b; a = b; b = remainder; }
             int count = outputRate / a;
             phases = count <= 512 ? new double[count][2 * radius + 1] : null;
+            flatPhases = phases == null ? null : new double[count * (2 * radius + 1)];
             if (phases == null) return;
             for (int phase = 0; phase < count; phase++) {
                 double fraction = ((long) phase * inputRate % outputRate) / (double) outputRate;
@@ -152,6 +191,7 @@ final class StreamingResampler {
                     double mix = distance - index;
                     phases[phase][k + radius] = table[index] + (table[index + 1] - table[index]) * mix;
                 }
+                System.arraycopy(phases[phase], 0, flatPhases, phase * phases[phase].length, phases[phase].length);
             }
         }
     }
