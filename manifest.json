@@ -23,5 +23,5 @@
         "apk": "lyrics.apk",
         "pluginClass": "com.lenerd.lyricsnative.NativePlugin"
     },
-    "targetSpotifyVersion": "9.1.28.2252"
+    "targetSpotifyVersion": ">=9.1.28.2252 <=9.1.94.1929"
 }
