@@ -20,6 +20,7 @@ typedef struct {
     cvec_t *grain;
     smpl_t *sorted;
     smpl_t loudest;
+    uint_t *begin, *end;
     uint_t hop, count, started;
 } envelope_handle;
 
@@ -55,11 +56,21 @@ JNIEXPORT jlong JNICALL Java_com_lenerd_lyricsnative_generation_Aubio_newEnvelop
     handle->sorted = calloc((size_t) bands, sizeof(smpl_t));
     handle->hop = (uint_t) hop;
     handle->count = (uint_t) bands;
+    handle->begin = calloc((size_t) bands, sizeof(uint_t));
+    handle->end = calloc((size_t) bands, sizeof(uint_t));
+    fmat_t *coefficients = aubio_filterbank_get_coeffs(handle->filterbank);
+    for (uint_t b = 0; b < handle->count; b++) {
+        uint_t begin = 0, end = coefficients->length;
+        while (begin < end && coefficients->data[b][begin] == 0) begin++;
+        while (end > begin && coefficients->data[b][end - 1] == 0) end--;
+        handle->begin[b] = begin;
+        handle->end[b] = end;
+    }
     handle->loudest = -INFINITY;
     return (jlong) (intptr_t) handle;
 }
 
-JNIEXPORT void JNICALL Java_com_lenerd_lyricsnative_generation_Aubio_processEnvelope(JNIEnv *env, jclass type, jlong pointer, jfloatArray samples, jint hops, jfloatArray values) {
+static void process_envelope(JNIEnv *env, jlong pointer, jfloatArray samples, jint hops, jfloatArray values, int sparse) {
     envelope_handle *handle = (envelope_handle *) (intptr_t) pointer;
     jfloat *input = (*env)->GetFloatArrayElements(env, samples, NULL);
     jfloat *output = (*env)->GetFloatArrayElements(env, values, NULL);
@@ -68,7 +79,17 @@ JNIEXPORT void JNICALL Java_com_lenerd_lyricsnative_generation_Aubio_processEnve
         memcpy(handle->input->data, input + h * handle->hop, handle->hop * sizeof(smpl_t));
 
         aubio_pvoc_do(handle->pvoc, handle->input, handle->grain);
-        aubio_filterbank_do(handle->filterbank, handle->grain, handle->bands);
+        if (sparse) {
+            fmat_t *coefficients = aubio_filterbank_get_coeffs(handle->filterbank);
+            for (uint_t i = 0; i < handle->grain->length; i++) handle->grain->norm[i] *= handle->grain->norm[i];
+            for (uint_t b = 0; b < handle->count; b++) {
+                smpl_t sum = 0;
+                for (uint_t i = handle->begin[b]; i < handle->end[b]; i++) sum += coefficients->data[b][i] * handle->grain->norm[i];
+                handle->bands->data[b] = sum;
+            }
+        } else {
+            aubio_filterbank_do(handle->filterbank, handle->grain, handle->bands);
+        }
 
         for (uint_t b = 0; b < handle->count; b++) {
             smpl_t db = 10 * log10f(fmaxf(handle->bands->data[b], 1e-10f));
@@ -95,6 +116,14 @@ JNIEXPORT void JNICALL Java_com_lenerd_lyricsnative_generation_Aubio_processEnve
     (*env)->ReleaseFloatArrayElements(env, samples, input, JNI_ABORT);
 }
 
+JNIEXPORT void JNICALL Java_com_lenerd_lyricsnative_generation_Aubio_processEnvelope(JNIEnv *env, jclass type, jlong pointer, jfloatArray samples, jint hops, jfloatArray values) {
+    process_envelope(env, pointer, samples, hops, values, 1);
+}
+
+JNIEXPORT void JNICALL Java_com_lenerd_lyricsnative_generation_Aubio_processEnvelopeReference(JNIEnv *env, jclass type, jlong pointer, jfloatArray samples, jint hops, jfloatArray values) {
+    process_envelope(env, pointer, samples, hops, values, 0);
+}
+
 JNIEXPORT void JNICALL Java_com_lenerd_lyricsnative_generation_Aubio_deleteEnvelope(JNIEnv *env, jclass type, jlong pointer) {
     envelope_handle *handle = (envelope_handle *) (intptr_t) pointer;
     if (!handle) return;
@@ -106,6 +135,8 @@ JNIEXPORT void JNICALL Java_com_lenerd_lyricsnative_generation_Aubio_deleteEnvel
     del_fvec(handle->bands);
     del_fvec(handle->previous);
     free(handle->sorted);
+    free(handle->begin);
+    free(handle->end);
     free(handle);
 }
 

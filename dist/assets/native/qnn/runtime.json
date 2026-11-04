@@ -1,0 +1,208 @@
+{
+    "version": "2.37.1",
+    "libraries": [
+        {
+            "name": "libQnnGpu.so",
+            "size": 6213192,
+            "sha256": "443009bfc4f3e824814306118d013a58d7430613004cd08dd11bcc406e9c8b09",
+            "parts": [
+                {
+                    "path": "libQnnGpu.so.gz.0",
+                    "size": 2079957,
+                    "sha256": "2f9e2687b76d03f377b2c68e1fc42858db526ae051263c394373c162e660c90d"
+                }
+            ]
+        },
+        {
+            "name": "libQnnHtp.so",
+            "size": 2467488,
+            "sha256": "703f1ac08c518a92caa41793e388b9b0c0570ab8d690782713e5e3386fb97227",
+            "parts": [
+                {
+                    "path": "libQnnHtp.so.gz.0",
+                    "size": 926613,
+                    "sha256": "1669d8f627ce46b93463d2b3dc434e631259a40e5852a161f13bdb428920e63a"
+                }
+            ]
+        },
+        {
+            "name": "libQnnHtpPrepare.so",
+            "size": 69160656,
+            "sha256": "e6d88f594ae98880e03aabc069a190c2a2b9813de2a66e95eeb520463fa2b541",
+            "parts": [
+                {
+                    "path": "libQnnHtpPrepare.so.gz.0",
+                    "size": 4194304,
+                    "sha256": "c3b6e78a5bed5402d35b89679cc0f3a74e35abafd226e99e28c77c5e796ea072"
+                },
+                {
+                    "path": "libQnnHtpPrepare.so.gz.1",
+                    "size": 4194304,
+                    "sha256": "6f061308ed1817120cc62bd7062c2b2cb2913970802cec51a13b0bce4bd94390"
+                },
+                {
+                    "path": "libQnnHtpPrepare.so.gz.2",
+                    "size": 4194304,
+                    "sha256": "2297991835ee28b628a2cde5b7ed891a9fb7781da397ad2d024d83b679f70f53"
+                },
+                {
+                    "path": "libQnnHtpPrepare.so.gz.3",
+                    "size": 4194304,
+                    "sha256": "92da61cf7c42e0f8f33759b345451c76b506d854985c79fb5c4452b34c48b52c"
+                },
+                {
+                    "path": "libQnnHtpPrepare.so.gz.4",
+                    "size": 4194304,
+                    "sha256": "971f38482346ba7d485116263f7fb81d358ebdf53e53ab5648a7fff6a72a74ff"
+                },
+                {
+                    "path": "libQnnHtpPrepare.so.gz.5",
+                    "size": 4194304,
+                    "sha256": "6b44db478391d533bd0210717b5bb33c7ae4ee1a9ac86b3aa8ea231fbf33006d"
+                },
+                {
+                    "path": "libQnnHtpPrepare.so.gz.6",
+                    "size": 4194304,
+                    "sha256": "3f22323ccf005453e7d1fc3ca353072336078b2f8b93641bc065a245f753acaa"
+                },
+                {
+                    "path": "libQnnHtpPrepare.so.gz.7",
+                    "size": 205394,
+                    "sha256": "3ebfd566007dacb27e85a9c2969636e052f603631c307dd9462d38a54f558fd4"
+                }
+            ]
+        },
+        {
+            "name": "libQnnHtpV68Skel.so",
+            "size": 8169208,
+            "sha256": "2ea16934aac4b6f41fb88ab818dc72e9f57614615d896c6bdea1cf69c40506e5",
+            "parts": [
+                {
+                    "path": "libQnnHtpV68Skel.so.gz.0",
+                    "size": 2683723,
+                    "sha256": "e60d1343c5df718ae494c01e3dc160e287a9e98bc5839542189910572bbd016f"
+                }
+            ]
+        },
+        {
+            "name": "libQnnHtpV68Stub.so",
+            "size": 708448,
+            "sha256": "cb6c67c6d468fd6fc5a298d3b0ac7e3b103df901e51445bf036f00bbf880c879",
+            "parts": [
+                {
+                    "path": "libQnnHtpV68Stub.so.gz.0",
+                    "size": 239120,
+                    "sha256": "93b79624b3345629115ec131449fe832e96b01370cd51bbb0eb15821d4612f03"
+                }
+            ]
+        },
+        {
+            "name": "libQnnHtpV69Skel.so",
+            "size": 9252200,
+            "sha256": "f282cc72a02edb64ad8b3dd976aa448390001c8e524db7746ad955da0021ef71",
+            "parts": [
+                {
+                    "path": "libQnnHtpV69Skel.so.gz.0",
+                    "size": 3044437,
+                    "sha256": "19a4cdebcfe50c8bd97459764f0ac55ab637479501694149e00e22a38ffbf3a7"
+                }
+            ]
+        },
+        {
+            "name": "libQnnHtpV69Stub.so",
+            "size": 708448,
+            "sha256": "7565a2eb1665ea0f2b436df893c017bf5e5fb6c5dd4419e0e8ebc94f67418164",
+            "parts": [
+                {
+                    "path": "libQnnHtpV69Stub.so.gz.0",
+                    "size": 239135,
+                    "sha256": "d170429b85ca1f435f6c636b1d8e6ea1724f4c33e30ed414b07028d7944f7edb"
+                }
+            ]
+        },
+        {
+            "name": "libQnnHtpV73Skel.so",
+            "size": 14461520,
+            "sha256": "89383862a7bd5ac697f45028160ff102576f47a5392c31e26a911abea858e9a2",
+            "parts": [
+                {
+                    "path": "libQnnHtpV73Skel.so.gz.0",
+                    "size": 3294501,
+                    "sha256": "f24997d48fa6200476bba8da60fd8dfb9177189cc158562e9af5112b5d732759"
+                }
+            ]
+        },
+        {
+            "name": "libQnnHtpV73Stub.so",
+            "size": 714184,
+            "sha256": "283c330e5f09b681840fadd8ea77e2cf192c3f5bb0eddebd60f9ec261d93ebb1",
+            "parts": [
+                {
+                    "path": "libQnnHtpV73Stub.so.gz.0",
+                    "size": 241150,
+                    "sha256": "add2db8878e7ecf50da4f8d604dc4213abfe6f38c2582981638e13747efebc9d"
+                }
+            ]
+        },
+        {
+            "name": "libQnnHtpV75Skel.so",
+            "size": 14465640,
+            "sha256": "7b05c9233ce5475909381f856a9641d8912b51448f5ed7c061eaf3610ce62e30",
+            "parts": [
+                {
+                    "path": "libQnnHtpV75Skel.so.gz.0",
+                    "size": 3311573,
+                    "sha256": "e064139634ca84ff1159966567b1edfc0d1977dae39083eb15dc90ac83c85330"
+                }
+            ]
+        },
+        {
+            "name": "libQnnHtpV75Stub.so",
+            "size": 714184,
+            "sha256": "c80b51e4214f2e1f1878e4a5234675600a4f07437c473dd2b545306ea630b860",
+            "parts": [
+                {
+                    "path": "libQnnHtpV75Stub.so.gz.0",
+                    "size": 241149,
+                    "sha256": "c2695c1ad8d80fa5fd71b753f9e52bb91d26112b8b059158794b77eba5afffb6"
+                }
+            ]
+        },
+        {
+            "name": "libQnnHtpV79Skel.so",
+            "size": 14372492,
+            "sha256": "e88b019fe24383f6871ea47e3d3afe6c2121dc62146164e9b14444aa419d9098",
+            "parts": [
+                {
+                    "path": "libQnnHtpV79Skel.so.gz.0",
+                    "size": 3385562,
+                    "sha256": "5e1e57d6bcca05e7e5d320322b9cf0d16b6860c2d8082b7af21f2be7c3bb2e8f"
+                }
+            ]
+        },
+        {
+            "name": "libQnnHtpV79Stub.so",
+            "size": 714184,
+            "sha256": "39cea00ad69f6b813c303cb483a48798bc04c7c44c01f3e75bb851c1bc0ffc98",
+            "parts": [
+                {
+                    "path": "libQnnHtpV79Stub.so.gz.0",
+                    "size": 241149,
+                    "sha256": "cf3e41153af56755e98dfa2ccaf4ef2cc94d5e6a6b798dfecead0168190b5bea"
+                }
+            ]
+        },
+        {
+            "name": "libQnnSystem.so",
+            "size": 2550152,
+            "sha256": "025e33d6445c63ee1559ad0c30cd899f4629e52ceec7ca66ee70392ba77021a1",
+            "parts": [
+                {
+                    "path": "libQnnSystem.so.gz.0",
+                    "size": 929221,
+                    "sha256": "a81a8cb191ed44a4b09fcbaa66c0841bd2013247e26a30f9c7924b34fc1a2de2"
+                }
+            ]
+        }
+    ]
+}

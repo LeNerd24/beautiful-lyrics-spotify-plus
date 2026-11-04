@@ -92,7 +92,7 @@ final class SpotifyRemoteAudioSource implements AutoCloseable {
                 stage = "resolution";
                 Object maker = Class.forName("com.lenerd.spotifyplus.module.hooks.ServicesHook", false, getClass().getClassLoader()).getField("retrofit").get(null);
                 StorageResolution.Response resolved;
-                try (StorageResolution.Request request = new StorageResolution.Request(selected.format, fileId, job.epoch); SpotifyResolverCall call = new SpotifyResolverCall(maker, request, () -> epoch(job))) {
+                try (StorageResolution.Request request = new StorageResolution.Request(selected.format, fileId, job.epoch); SpotifyResolverCall call = new SpotifyResolverCall(maker, request, () -> epoch(job), context.getHooks())) {
                     job.resolver = call;
                     resolved = call.executeOnWorker();
                 } finally {

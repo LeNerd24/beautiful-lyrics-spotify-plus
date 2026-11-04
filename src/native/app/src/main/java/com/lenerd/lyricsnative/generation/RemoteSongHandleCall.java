@@ -26,16 +26,9 @@ final class RemoteSongHandleCall implements AutoCloseable {
     int execute(SpotifyPlusContext context, byte[] fileId) throws Exception {
         if (fileId == null || fileId.length != 20) throw new IOException("Invalid audio file identifier");
         requireCurrent();
-        Object request = SpotifyReflection.call(context.getHooks().findClass("com.spotify.download.esperanto.proto.EsDownload$GetMediaHandleParams"), "p");
-        SpotifyReflection.call(request, "m", RootTrackFiles.hex(fileId));
-        Object kind = null;
-        for (Object value : context.getHooks().findClass("p.gaw").getEnumConstants())
-            if (((Enum<?>) value).name().equals("AUDIO")) kind = value;
-        if (kind == null) throw new IOException("Audio initialization unavailable");
-        SpotifyReflection.call(request, "q", kind);
-        Object core = Class.forName("com.lenerd.spotifyplus.module.hooks.PlayerHook", false, getClass().getClassLoader()).getField("core").get(null);
-        Object client = core.getClass().getField("a").get(core);
-        Object stream = SpotifyReflection.call(client, "callStream", "spotify.download.esperanto.proto.Download", "GetMediaHandleId", SpotifyReflection.call(request, "build"));
+        Class<?> parameters = context.getHooks().findClass("com.spotify.download.esperanto.proto.EsDownload$GetMediaHandleParams");
+        byte[] request = SpotifyAudioApi.message(1, SpotifyAudioApi.enumNumber(parameters, "AUDIO"), 2, RootTrackFiles.hex(fileId));
+        Object stream = SpotifyReflection.call(SpotifyAudioApi.transport(context), "callStream", "spotify.download.esperanto.proto.Download", "GetMediaHandleId", request);
         stream = SpotifyReflection.call(stream, "timeout", 30L, TimeUnit.SECONDS);
         Class<?> consumer = context.getHooks().findClass("io.reactivex.rxjava3.functions.Consumer");
         Class<?> parser = context.getHooks().findClass("com.spotify.download.esperanto.proto.EsDownload$GetMediaHandleIdResponse");
@@ -46,11 +39,11 @@ final class RemoteSongHandleCall implements AutoCloseable {
             try {
                 requireCurrent();
                 if (bytes == null || bytes.length > 65536) throw new IOException("Invalid audio initialization response");
-                Object response = SpotifyReflection.call(parser, "p", bytes);
-                initialHandle.compareAndSet(null, ((Number) SpotifyReflection.call(response, "n")).intValue());
-                if (!Boolean.TRUE.equals(SpotifyReflection.call(response, "hasStatus"))) return null;
-                Enum<?> status = (Enum<?>) SpotifyReflection.call(response, "o");
-                if (status.name().equals("OK")) result.complete(initialHandle.get());
+                Object response = SpotifyAudioApi.parse(parser, bytes);
+                initialHandle.compareAndSet(null, ((Number) SpotifyAudioApi.field(response, "handleId_")).intValue());
+                if ((((Number) SpotifyAudioApi.field(response, "bitField0_")).intValue() & 1) == 0) return null;
+                int status = ((Number) SpotifyAudioApi.field(response, "status_")).intValue();
+                if (status == 0) result.complete(initialHandle.get());
                 else result.completeExceptionally(new IOException("Audio initialization rejected"));
             } catch (Throwable error) {
                 result.completeExceptionally(error);

@@ -2,8 +2,9 @@
 #include <dlfcn.h>
 #include <stdint.h>
 #include <android/log.h>
+#include "../resident-gadget.h"
 
-static void *gadget;
+static int gadgetLoaded;
 static jclass anchor;
 extern void lyrics_spotify_audio_resources_clear(void);
 extern void lyrics_spotify_audio_cache_clear(void);
@@ -46,9 +47,9 @@ JNIEXPORT jboolean JNICALL Java_com_lenerd_lyricsnative_generation_SpotifyAudioN
         return JNI_FALSE;
     }
     clear();
-    if (!gadget) gadget = dlopen(name, RTLD_NOW | RTLD_LOCAL);
+    if (!gadgetLoaded) gadgetLoaded = lyrics_gadget_reuse_or_load(name);
     (*env)->ReleaseStringUTFChars(env, path, name);
-    if (gadget) return JNI_TRUE;
+    if (gadgetLoaded) return JNI_TRUE;
     lyrics_spotify_audio_epoch_end();
     clear();
     (*env)->DeleteGlobalRef(env, anchor);

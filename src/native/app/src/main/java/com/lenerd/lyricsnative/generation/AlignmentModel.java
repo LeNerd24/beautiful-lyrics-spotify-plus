@@ -7,6 +7,8 @@ import java.io.InputStream;
 import java.nio.FloatBuffer;
 import java.security.MessageDigest;
 import java.util.Map;
+import android.os.Build;
+import android.util.Log;
 
 import ai.onnxruntime.OnnxTensor;
 import ai.onnxruntime.OrtEnvironment;
@@ -35,15 +37,29 @@ final class AlignmentModel implements AutoCloseable {
 
     private final OrtEnvironment environment = OrtEnvironment.getEnvironment();
     private final OrtSession session;
+    private final OrtSession.SessionOptions options;
+    private NpuAlignment npu;
 
     AlignmentModel(File model) throws OrtException {
-        try (var options = new OrtSession.SessionOptions()) {
-            options.setIntraOpNumThreads(4);
+        this(model, null);
+    }
+
+    AlignmentModel(File model, com.lenerd.spotifyplus.sdk.spotify.SpotifyPlusContext context) throws OrtException {
+        options = new OrtSession.SessionOptions();
+        try {
+            int threads = Build.VERSION.SDK_INT >= 31 && Build.SOC_MODEL.toUpperCase(java.util.Locale.ROOT).startsWith("SM8750") ? Math.min(6, Runtime.getRuntime().availableProcessors()) : 4;
+            options.setIntraOpNumThreads(threads);
             options.setInterOpNumThreads(1);
             options.addConfigEntry("session.intra_op.allow_spinning", "0");
+            options.addConfigEntry("session.inter_op.allow_spinning", "0");
             options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT);
 
             session = environment.createSession(model.getPath(), options);
+            Log.i("LyricsGeneration", "Alignment backend=CPU threads=" + threads);
+            npu = NpuAlignment.open(context, model.getParentFile());
+        } catch (OrtException | RuntimeException | LinkageError error) {
+            options.close();
+            throw error;
         }
     }
 
@@ -117,6 +133,8 @@ final class AlignmentModel implements AutoCloseable {
     }
 
     private float[][] logits(float[] audio) throws OrtException {
+        long started = System.nanoTime();
+        String reason = npu == null ? "npu_unavailable" : !NpuAlignment.accepts(audio.length) ? "window_length" : "quiet_audio";
         double mean = 0, variance = 0;
         for (float sample : audio) mean += sample;
         mean /= audio.length;
@@ -128,9 +146,27 @@ final class AlignmentModel implements AutoCloseable {
         float[] normalized = new float[audio.length];
         for (int i = 0; i < audio.length; i++) normalized[i] = (float) ((audio[i] - mean) * scale);
 
+        if (npu != null && NpuAlignment.accepts(audio.length) && variance > 1e-10) {
+            try {
+                float[][] result = npu.logits(normalized);
+                Log.i("LyricsGeneration", String.format(java.util.Locale.ROOT, "PERF emissions backend=NPU audio_ms=%.2f elapsed_ms=%.2f", audio.length * 1000.0 / SAMPLE_RATE, (System.nanoTime() - started) / 1e6));
+                return result;
+            } catch (OrtException | IllegalStateException | LinkageError error) {
+                reason = "npu_failure";
+                Log.w("LyricsGeneration", "NPU alignment failed; retrying this and subsequent windows on CPU", error);
+                try {
+                    npu.close();
+                } catch (OrtException | RuntimeException | LinkageError cleanup) {
+                    error.addSuppressed(cleanup);
+                }
+                npu = null;
+            }
+        }
+
         try (OnnxTensor input = OnnxTensor.createTensor(environment, FloatBuffer.wrap(normalized), new long[] {1, audio.length});
             OrtSession.Result result = session.run(Map.of("input_values", input))) {
             float[][][] logits = (float[][][]) result.get(0).getValue();
+            Log.i("LyricsGeneration", String.format(java.util.Locale.ROOT, "PERF emissions backend=CPU reason=%s audio_ms=%.2f elapsed_ms=%.2f", reason, audio.length * 1000.0 / SAMPLE_RATE, (System.nanoTime() - started) / 1e6));
             return logits[0];
         }
     }
@@ -156,6 +192,14 @@ final class AlignmentModel implements AutoCloseable {
 
     @Override
     public void close() throws OrtException {
-        session.close();
+        try {
+            try {
+                if (npu != null) npu.close();
+            } finally {
+                session.close();
+            }
+        } finally {
+            options.close();
+        }
     }
 }

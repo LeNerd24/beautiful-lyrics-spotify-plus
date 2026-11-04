@@ -1,6 +1,14 @@
 cmake_minimum_required(VERSION 3.22.1)
 project(lyricsaubio C CXX)
 
+add_library(lyricsspectral SHARED spectral_jni.cpp)
+target_compile_features(lyricsspectral PRIVATE cxx_std_17)
+target_compile_options(lyricsspectral PRIVATE -O3 -ffp-contract=off)
+target_link_libraries(lyricsspectral m)
+
+add_library(lyricsqnn SHARED qnn_jni.c)
+target_link_libraries(lyricsqnn dl)
+
 file(GLOB AUBIO_SOURCES aubio/src/*.c aubio/src/spectral/*.c aubio/src/onset/*.c aubio/src/tempo/*.c aubio/src/temporal/*.c aubio/src/utils/*.c)
 
 add_library(lyricsaubio SHARED aubio_jni.c ${AUBIO_SOURCES})

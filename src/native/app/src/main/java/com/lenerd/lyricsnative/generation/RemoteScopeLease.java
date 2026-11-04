@@ -63,8 +63,10 @@ final class RemoteScopeLease implements AutoCloseable {
             if (mode == null || !RemoteAudioNative.arm(epoch, handle)) throw new IOException("Owned initialization capture unavailable");
             android.util.Log.i("LyricsSpotifyAudio", "Current recording initialization armed");
             Object result = SpotifyReflection.call(factory, "createProcessor", handle, mode);
-            if (result != null && result.getClass().getName().equals("com.spotify.contentdelivery.mediaprocessing.CreateProcessorResult$Success")) processor = SpotifyReflection.call(result, "getProcessor");
-            if (processor == null || RemoteAudioNative.status(epoch) != 2) throw new IOException("Owned initialization capture rejected");
+            Class<?> processorType = context.getHooks().findClass("com.spotify.contentdelivery.mediaprocessing.NativeMediaProcessor");
+            processor = MediaProcessorResult.unwrap(result, processorType);
+            int status = RemoteAudioNative.status(epoch);
+            if (processor == null || status != 2) throw new IOException("Owned initialization capture rejected (processor=" + (result == null ? "null" : result.getClass().getSimpleName()) + ", status=" + status + ")");
         } finally {
             try {
                 if (processor != null) SpotifyReflection.call(processor, "destroy");

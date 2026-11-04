@@ -251,9 +251,12 @@ rpc.exports = {
         }
         if (parameters.queueNoop === true) postNoop = new NativeFunction(bridge.getExportByName("lyrics_spotify_audio_post_noop"), "int", ["pointer", "pointer", "pointer"], options);
         orbit = Process.getModuleByName("liborbit-jni-spotify.so");
+        if (Process.arch !== "arm64" || Process.pointerSize !== 8) throw new Error("Spotify cache audio requires an arm64 process");
+        const identity = Array.from(new Uint8Array(orbit.base.add(0x2d0).readByteArray(24)), value => value.toString(16).padStart(2, "0")).join("");
+        if (identity !== "040000000800000003000000474e5500a4cf79bad1bd1005") throw new Error("Spotify cache layout is unverified for this native build");
         const entry = orbit.base.add(0xc58d70);
         const signature = Array.from(new Uint8Array(entry.readByteArray(16)), value => value.toString(16).padStart(2, "0")).join("");
-        if (signature !== factorySignature) { emit("audit-signature-rejected"); return; }
+        if (signature !== factorySignature) throw new Error("Spotify cache native identity mismatch");
         if (captureResource && new NativeFunction(bridge.getExportByName("lyrics_spotify_audio_cache_mode"), "int", [], options)() !== 0) installCacheCopy(bridge, options);
         hooks.push(Interceptor.attach(entry, {
             onEnter(args) {

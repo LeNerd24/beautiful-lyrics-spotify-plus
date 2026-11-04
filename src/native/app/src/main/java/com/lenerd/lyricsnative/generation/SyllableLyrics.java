@@ -70,6 +70,10 @@ final class SyllableLyrics {
     }
 
     static JSONObject build(List<Line> lines) throws JSONException {
+        return build(lines, null);
+    }
+
+    static JSONObject build(List<Line> lines, JSONArray songWriters) throws JSONException {
         JSONArray content = new JSONArray();
         long songStart = Long.MAX_VALUE, songEnd = Long.MIN_VALUE, previousStart = 0;
 
@@ -150,6 +154,7 @@ final class SyllableLyrics {
         lyrics.put("StartTime", seconds(songStart));
         lyrics.put("EndTime", seconds(songEnd));
         lyrics.put("Content", content);
+        if (songWriters != null) lyrics.put("SongWriters", new JSONArray(songWriters.toString()));
 
         return lyrics;
     }

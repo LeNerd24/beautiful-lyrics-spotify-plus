@@ -69,14 +69,11 @@ final class SpotifySongAudioSource implements AutoCloseable {
     private boolean localPlayback() throws IOException {
         byte[] bytes = null;
         try {
-            Object core = Class.forName("com.lenerd.spotifyplus.module.hooks.PlayerHook", false, getClass().getClassLoader()).getField("core").get(null);
-            Object client = core.getClass().getField("a").get(core);
-            Object request = SpotifyReflection.call(context.getHooks().findClass("com.spotify.connect.esperanto.proto.ConnectMessages$StateRequest"), "s");
-            SpotifyReflection.call(request, "q");
-            Object stream = SpotifyReflection.call(client, "callStream", "spotify.connect.esperanto.proto.ConnectService", "State", SpotifyReflection.call(request, "build"));
+            byte[] request = SpotifyAudioApi.message(3, 1);
+            Object stream = SpotifyReflection.call(SpotifyAudioApi.transport(context), "callStream", "spotify.connect.esperanto.proto.ConnectService", "State", request);
             bytes = (byte[]) SpotifyReflection.call(SpotifyReflection.call(SpotifyReflection.call(stream, "firstOrError"), "timeout", 5L, TimeUnit.SECONDS), "blockingGet");
-            Object state = SpotifyReflection.call(context.getHooks().findClass("com.spotify.connect.esperanto.proto.ConnectMessages$StateResponse"), "t", bytes);
-            return !Boolean.TRUE.equals(SpotifyReflection.call(state, "r")) || Boolean.TRUE.equals(SpotifyReflection.call(state, "q"));
+            Object state = SpotifyAudioApi.parse(context.getHooks().findClass("com.spotify.connect.esperanto.proto.ConnectMessages$StateResponse"), bytes);
+            return !Boolean.TRUE.equals(SpotifyAudioApi.field(state, "isSyncedWithBackend_")) || Boolean.TRUE.equals(SpotifyAudioApi.field(state, "isActiveOnSameDevice_"));
         } catch (Exception error) {
             if (Thread.currentThread().isInterrupted()) throw new InterruptedIOException("Spotify audio request was cancelled");
             return true;

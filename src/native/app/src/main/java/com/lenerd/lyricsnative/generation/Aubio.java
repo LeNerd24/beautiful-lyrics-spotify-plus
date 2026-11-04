@@ -7,6 +7,7 @@ final class Aubio {
 
     static native long newEnvelope(int window, int hop, int rate, int bands, float minimumHz, float maximumHz);
     static native void processEnvelope(long envelope, float[] samples, int hops, float[] values);
+    static native void processEnvelopeReference(long envelope, float[] samples, int hops, float[] values);
     static native void deleteEnvelope(long envelope);
 
     static native long newTempo(String method, int window, int hop, int rate);

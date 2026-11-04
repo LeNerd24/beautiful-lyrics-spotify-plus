@@ -127,9 +127,8 @@ public final class LyricsGenerator implements AutoCloseable {
 
     private void generateLocally(String trackId, double position, Map<String, String> readings, SpotifySongAudioSource.Ticket sourceTicket) throws Exception {
         progress(trackId, "lyrics", "Finding lyrics");
-        JSONArray lines = sourceLines(trackId);
-
-        JSONObject sourceLyrics = new JSONObject().put("Type", "Line").put("Content", lines);
+        JSONObject sourceLyrics = loadSourceLyrics(trackId);
+        JSONArray lines = sourceLyrics.getJSONArray("Content");
         events.emit("lyrics.generate.begin", new JSONObject().put("trackId", trackId).put("sessionId", sessionId).put("source", sourceLyrics));
 
         File directory = new File(System.getProperty("java.io.tmpdir"), "lyrics-generation-" + trackId);
@@ -137,7 +136,11 @@ public final class LyricsGenerator implements AutoCloseable {
 
         File source = new File(directory, "source"), pcm = new File(directory, "source.pcm");
         ExecutorService preparation = Executors.newSingleThreadExecutor(r -> new Thread(r, "LyricsAudioPreparation"));
-        Future<File> modelDownload = preparation.submit(() -> AlignmentModel.ensure(modelDirectory(), client, percent -> progress(trackId, "model", "Downloading alignment model " + percent + "%"), message -> Log.w(TAG, message)));
+        Future<File> modelDownload = preparation.submit(() -> {
+            File model = AlignmentModel.ensure(modelDirectory(), client, percent -> progress(trackId, "model", "Downloading alignment model " + percent + "%"), message -> Log.w(TAG, message));
+            NpuAlignment.ensure(context, modelDirectory(), client, percent -> progress(trackId, "model", "Downloading NPU alignment model " + percent + "%"), message -> Log.w(TAG, message));
+            return model;
+        });
 
         try {
             progress(trackId, "downloading", "Reading song");
@@ -173,14 +176,17 @@ public final class LyricsGenerator implements AutoCloseable {
             int[] completed = {0};
 
             progress(trackId, "generating", "Starting lyrics generation");
-            try (RandomAccessFile file = new RandomAccessFile(pcm, "r"); VocalSeparator separator = new VocalSeparator(VocalSeparator.bundledModel()); AlignmentModel aligner = new AlignmentModel(model)) {
+            try (RandomAccessFile file = new RandomAccessFile(pcm, "r"); VocalSeparator separator = VocalSeparator.forGeneration(context); AlignmentModel aligner = new AlignmentModel(model, context)) {
+                Log.i(TAG, "Generation separator backend=" + separator.backend());
                 if (file.length() > Integer.MAX_VALUE) throw new GenerationException("This song is too long to generate lyrics for");
                 ShortBuffer samples = file.getChannel().map(FileChannel.MapMode.READ_ONLY, 0, file.length()).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer();
                 Hyphenator hyphenator = Hyphenator.bundled();
                 OfflineSeparator.WindowCache separatedWindows = new OfflineSeparator.WindowCache();
                 List<GenerationPlan.Chunk> chunks = GenerationPlan.create(planLines, currentPosition(trackId, position), duration);
+                long[] nextSection = {System.nanoTime()};
 
                 ChunkPipeline.run(chunks, chunk -> prepareChunk(samples, decoded, chunk, separator, separatedWindows), (chunk, prepared) -> {
+                    Log.i(TAG, String.format(Locale.ROOT, "PERF section_ready start_ms=%.2f end_ms=%.2f lines=%d wait_ms=%.2f", chunk.start(), chunk.end(), chunk.lines().size(), (System.nanoTime() - nextSection[0]) / 1e6));
                     LineAligner.Audio audio = new LineAligner.Audio() {
                         @Override
                         public int length() { return prepared.vocals.length; }
@@ -198,21 +204,25 @@ public final class LyricsGenerator implements AutoCloseable {
                         for (SyllableLyrics.Token token : tokens) words.add(token.text());
 
                         long started = System.nanoTime();
+                        Log.i(TAG, String.format(Locale.ROOT, "PERF line_begin index=%d start_ms=%.2f end_ms=%.2f words=%d", planned.index(), planned.start(), planned.end(), words.size()));
                         List<LineAligner.Word> timed = lineAligner.alignLine(words, planned.start() - prepared.offset, planned.end() - prepared.offset);
+                        long alignedAt = System.nanoTime();
                         Log.i(TAG, String.format(Locale.ROOT, "Aligned line %d in %.2fs", planned.index(), (System.nanoTime() - started) / 1e9));
                         for (int w = 0; w < timed.size(); w++) timed.set(w, timed.get(w).shifted(prepared.offset));
                         SyllableLyrics.Line aligned = new SyllableLyrics.Line(line.optBoolean("OppositeAligned"), tokens, timed);
                         generated[planned.index()] = aligned;
                         JSONObject vocal = SyllableLyrics.build(List.of(aligned)).getJSONArray("Content").getJSONObject(0);
                         events.emit("lyrics.generate.line", new JSONObject().put("trackId", trackId).put("sessionId", sessionId).put("index", planned.index()).put("line", vocal).put("completed", ++completed[0]).put("total", planLines.size()));
+                        Log.i(TAG, String.format(Locale.ROOT, "PERF line_done index=%d alignment_ms=%.2f publish_ms=%.2f", planned.index(), (alignedAt - started) / 1e6, (System.nanoTime() - alignedAt) / 1e6));
                     }
+                    nextSection[0] = System.nanoTime();
                 }, preparation);
             }
 
             List<SyllableLyrics.Line> ordered = new ArrayList<>();
             for (SyllableLyrics.Line line : generated)
                 if (line != null) ordered.add(line);
-            JSONObject lyrics = SyllableLyrics.build(ordered);
+            JSONObject lyrics = SyllableLyrics.build(ordered, sourceLyrics.optJSONArray("SongWriters"));
 
             progress(trackId, "uploading", "Uploading lyrics");
             submit(trackId, lyrics);
@@ -237,34 +247,8 @@ public final class LyricsGenerator implements AutoCloseable {
     private record PreparedChunk(float[] vocals, MusicAnalysis analysis, double offset) { }
 
     private PreparedChunk prepareChunk(ShortBuffer source, AudioCodec.Decoded decoded, GenerationPlan.Chunk chunk, VocalSeparator separator, OfflineSeparator.WindowCache cache) throws Exception {
-        long started = System.nanoTime();
-        int start = (int) Math.round(chunk.start() * decoded.rate() / 1000), end = (int) Math.min(decoded.frames(), Math.ceil(chunk.end() * decoded.rate() / 1000));
-        float[] vocals = new float[Math.toIntExact(StreamingResampler.outputFrames(end - start, decoded.rate(), AlignmentModel.SAMPLE_RATE))];
-        int[] written = {0};
-        float[][] mono = new float[2][0];
-
-        try (RhythmTrack vocalRhythm = new RhythmTrack(decoded.rate(), 80, 8000, false); RhythmTrack instrumentalRhythm = new RhythmTrack(decoded.rate(), 0, 11025, true)) {
-            StreamingResampler resampler = new StreamingResampler(decoded.rate(), AlignmentModel.SAMPLE_RATE, (samples, count) -> {
-                System.arraycopy(samples, 0, vocals, written[0], count);
-                written[0] += count;
-            });
-            OfflineSeparator.separateRange(source, decoded.frames(), decoded.rate(), start, end, separator::separate, (voice, original, count) -> {
-                if (closed) throw new InterruptedException();
-                if (mono[0].length < count) mono[0] = new float[count];
-                if (mono[1].length < count) mono[1] = new float[count];
-
-                for (int i = 0; i < count; i++) {
-                    mono[0][i] = (voice[0][i] + voice[1][i]) / 2;
-                    mono[1][i] = (original[0][i] + original[1][i]) / 2 - mono[0][i];
-                }
-                vocalRhythm.write(mono[0], count);
-                instrumentalRhythm.write(mono[1], count);
-                resampler.write(mono[0], count);
-            }, null, cache);
-            resampler.finish();
-            Log.i(TAG, String.format(Locale.ROOT, "Audio section %.1f–%.1fs prepared in %.2fs", chunk.start() / 1000, chunk.end() / 1000, (System.nanoTime() - started) / 1e9));
-            return new PreparedChunk(java.util.Arrays.copyOf(vocals, written[0]), new MusicAnalysis(vocalRhythm.finish(), instrumentalRhythm.finish()), start * 1000.0 / decoded.rate());
-        }
+        AudioPreparation.Result prepared = AudioPreparation.prepare(source, decoded, chunk, separator::separate, cache, () -> closed);
+        return new PreparedChunk(prepared.vocals(), prepared.analysis(), prepared.offset());
     }
 
     private double currentPosition(String trackId, double fallback) {
@@ -293,7 +277,7 @@ public final class LyricsGenerator implements AutoCloseable {
         return readings;
     }
 
-    private JSONArray sourceLines(String trackId) throws IOException, GenerationException {
+    private JSONObject loadSourceLyrics(String trackId) throws IOException, GenerationException {
         Request request = new Request.Builder().url(API + "/api/lyrics/" + trackId).header("Accept", "application/json").build();
 
         try (Response response = client.newCall(request).execute()) {
@@ -309,7 +293,7 @@ public final class LyricsGenerator implements AutoCloseable {
             JSONArray content = body.optJSONArray("Content");
             if (content == null || content.length() == 0) throw new GenerationException("This song has no lyrics to time");
 
-            return content;
+            return body;
         }
     }
 
@@ -388,7 +372,8 @@ public final class LyricsGenerator implements AutoCloseable {
         float[][] backing = new float[2][];
         int[] lastPercent = {-1};
 
-        try (RandomAccessFile file = new RandomAccessFile(pcm, "r"); VocalSeparator separator = new VocalSeparator(VocalSeparator.bundledModel()); AudioCodec.AacWriter vocalWriter = new AudioCodec.AacWriter(vocals, decoded.rate()); AudioCodec.AacWriter instrumentalWriter = new AudioCodec.AacWriter(instrumental, decoded.rate())) {
+        try (RandomAccessFile file = new RandomAccessFile(pcm, "r"); VocalSeparator separator = VocalSeparator.forGeneration(context); AudioCodec.AacWriter vocalWriter = new AudioCodec.AacWriter(vocals, decoded.rate()); AudioCodec.AacWriter instrumentalWriter = new AudioCodec.AacWriter(instrumental, decoded.rate())) {
+            Log.i(TAG, "Stem separator backend=" + separator.backend());
             var samples = file.getChannel().map(FileChannel.MapMode.READ_ONLY, 0, file.length()).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer();
 
             OfflineSeparator.separate(samples, decoded.frames(), decoded.rate(), separator::separate, (voice, original, count) -> {

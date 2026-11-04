@@ -14,7 +14,6 @@
 
 namespace {
     constexpr size_t packetBytes = 28, stateBytes = 0x370, chunkBytes = 65536, maximumBytes = 16 * 1024 * 1024;
-    constexpr uintptr_t constructorOffset = 0x10ee078, initializeOffset = 0x10ee0ec, transformOffset = 0x10ee234, destructorOffset = 0x10e6964, callerOffset = 0xafd3ac;
     using Constructor = void (*)(void *, uint8_t);
     using Initialize = void (*)(void *, const void *);
     using Transform = void (*)(void *, uint64_t, void *, const void *, uint64_t);
@@ -25,6 +24,8 @@ namespace {
         Transform transform = nullptr;
         Destructor destroy = nullptr;
         uintptr_t caller = 0;
+        size_t packetSize = packetBytes, readyOffset = 12;
+        uint32_t mode = 2;
     };
 
     void wipe(uint8_t *bytes, size_t length) noexcept {
@@ -58,7 +59,7 @@ namespace {
             if (constructed) {
                 constructed = false;
                 try {
-                    destroy(bytes.data());
+                    if (destroy) destroy(bytes.data());
                 } catch (...) {
                     success = false;
                 }
@@ -90,7 +91,7 @@ namespace {
         return active && active->epoch == epoch ? active : nullptr;
     }
 
-    bool methodsValid(const Methods &methods) { return methods.construct && methods.initialize && methods.transform && methods.destroy && methods.caller; }
+    bool methodsValid(const Methods &methods) { return methods.initialize && methods.transform && methods.caller && (methods.mode == 3 || (methods.construct && methods.destroy)); }
 
     bool disjoint(const uint8_t *input, uint8_t *output, size_t length) {
         uintptr_t source = reinterpret_cast<uintptr_t>(input), destination = reinterpret_cast<uintptr_t>(output);
@@ -99,11 +100,15 @@ namespace {
     }
 }
 
-extern "C" int lyrics_spotify_remote_cipher_configure(uintptr_t moduleBase) {
-    if (!moduleBase || moduleBase % 4096 != 0 || moduleBase > std::numeric_limits<uintptr_t>::max() - transformOffset) return 0;
+extern "C" int lyrics_spotify_remote_cipher_configure_profile(uintptr_t moduleBase, size_t moduleSize, const uintptr_t *profile) {
+    if (!moduleBase || moduleBase % 4096 || moduleSize < 4096 || moduleSize > 128 * 1024 * 1024 || !profile || moduleBase > std::numeric_limits<uintptr_t>::max() - moduleSize) return 0;
+    const uintptr_t constructor = profile[0], initialize = profile[1], transform = profile[2], destructor = profile[3], caller = profile[4], ready = profile[5], packet = profile[6], mode = profile[7];
+    if ((mode != 1 && mode != 2 && mode != 3) || (packet != 24 && packet != 28) || ready != (mode == 1 ? 100 : mode == 2 ? 12 : 8) || !initialize || !transform || !caller) return 0;
+    for (size_t index = 0; index < 5; index++) if (profile[index] >= moduleSize || profile[index] % 4) return 0;
+    if ((mode != 3 && (!constructor || !destructor)) || (mode == 3 && (constructor || destructor))) return 0;
     std::lock_guard lock(jobsMutex);
     if (active) return 0;
-    configured = {reinterpret_cast<Constructor>(moduleBase + constructorOffset), reinterpret_cast<Initialize>(moduleBase + initializeOffset), reinterpret_cast<Transform>(moduleBase + transformOffset), reinterpret_cast<Destructor>(moduleBase + destructorOffset), moduleBase + callerOffset};
+    configured = {constructor ? reinterpret_cast<Constructor>(moduleBase + constructor) : nullptr, reinterpret_cast<Initialize>(moduleBase + initialize), reinterpret_cast<Transform>(moduleBase + transform), destructor ? reinterpret_cast<Destructor>(moduleBase + destructor) : nullptr, moduleBase + caller, packet, ready, static_cast<uint32_t>(mode)};
     return 1;
 }
 
@@ -128,8 +133,8 @@ extern "C" int lyrics_spotify_remote_cipher_capture(uint64_t epoch, uint32_t han
     std::lock_guard lock(job->mutex);
     if (job->cancelled.load() || job->status.load() != READER_REMOTE_ARMED) return 0;
     const auto *optional = static_cast<const uint8_t *>(optional29);
-    if (optional[packetBytes] != 1) return 0;
-    std::memcpy(job->packet.bytes.data(), optional, packetBytes);
+    if (optional[job->methods.packetSize] != 1) return 0;
+    std::memcpy(job->packet.bytes.data(), optional, job->methods.packetSize);
     {
         std::lock_guard publish(jobsMutex);
         if (active != job || job->cancelled.load()) {
@@ -167,11 +172,11 @@ extern "C" int lyrics_spotify_remote_cipher_decrypt(uint64_t epoch, const uint8_
             wipe(job->packet.bytes.data(), packetBytes);
         }
         if (!job->cancelled.load()) {
-            job->methods.construct(context.bytes.data(), 1);
+            if (job->methods.construct) job->methods.construct(context.bytes.data(), 1);
             context.constructed = true;
             if (!job->cancelled.load()) job->methods.initialize(context.bytes.data(), packet.bytes.data());
             wipe(packet.bytes.data(), packetBytes);
-            if (!job->cancelled.load() && context.bytes[0] == 1 && context.bytes[0xc] != 0) {
+            if (!job->cancelled.load() && context.bytes[job->methods.readyOffset] != 0 && (job->methods.mode != 2 || context.bytes[0] == 1)) {
                 size_t position = 0;
                 while (position < length && !job->cancelled.load()) {
                     size_t count = std::min(chunkBytes, length - position);
@@ -203,6 +208,6 @@ extern "C" void lyrics_spotify_remote_cipher_clear(void) {
 #ifdef READER_PROBE_REMOTE_CIPHER_TEST
 extern "C" void lyrics_spotify_remote_cipher_test_methods(Constructor construct, Initialize initialize, Transform transform, Destructor destroy) {
     std::lock_guard lock(jobsMutex);
-    if (!active) configured = {construct, initialize, transform, destroy, 0x10000000 + callerOffset};
+    if (!active) configured = {construct, initialize, transform, destroy, 0x10afd3ac};
 }
 #endif

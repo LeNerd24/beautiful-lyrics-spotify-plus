@@ -3,6 +3,7 @@
     "version": "1.0.0",
     "dependencies": {
         "@iamtraction/google-translate": "^2.0.1",
+        "@indic-transliteration/sanscript": "^1.3.3",
         "cubic-spline": "^3.0.3",
         "curve-interpolator": "^3.3.1",
         "d3-ease": "^3.0.1",
@@ -27,6 +28,10 @@
         "dev": "spotifyplus dev",
         "prebuild": "npm run build:native",
         "verify:audio-assets": "node verify-audio-assets.mjs",
+        "verify:audio-managed": "python verification/verify-managed-audio.py",
+        "verify:audio-native": "node verify-native-audio.mjs",
+        "verify:sing": "node verify-sing-compatibility.mjs",
+        "test:audio-profile": "node --test verification/spotify-audio-profile.test.mjs",
         "build:native": "node verify-audio-assets.mjs && node scripts/build-native.mjs",
         "build": "spotifyplus build",
         "test:translation": "node --test tools/tests/*.test.mjs",

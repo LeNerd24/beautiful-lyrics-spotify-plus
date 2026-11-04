@@ -41,7 +41,7 @@ final class SpotifyCachedAudioSource implements AutoCloseable {
     private final Consumer<Object> changed = ignored -> cancelCurrent();
     private SpotifyPlusEvents events;
     private Field stateField;
-    private Method track, present, unwrap, uri, uid, playback, session, playing, paused;
+    private Method track, uri, uid, playback, session, playing, paused;
     private volatile boolean closed, scopeClosing;
     private String unavailable;
 
@@ -73,8 +73,6 @@ final class SpotifyCachedAudioSource implements AutoCloseable {
             stateField = Class.forName("com.lenerd.spotifyplus.module.Utils", false, getClass().getClassLoader()).getField("playerState");
             Class<?> state = api.findClass("com.spotify.player.model.PlayerState"), item = api.findClass("com.spotify.player.model.ContextTrack");
             track = state.getMethod("track");
-            present = track.getReturnType().getMethod("c");
-            unwrap = track.getReturnType().getMethod("b");
             uri = item.getMethod("uri");
             uid = item.getMethod("uid");
             playback = state.getMethod("playbackId");
@@ -101,12 +99,6 @@ final class SpotifyCachedAudioSource implements AutoCloseable {
     Ticket begin(String trackId, String generation) throws IOException {
         if (unavailable != null) throw new IOException(unavailable);
         if (closed || scopeClosing || trackId == null || !trackId.matches("[A-Za-z0-9]{22}") || generation == null || generation.isEmpty()) throw new IOException("Spotify cached audio request is unavailable");
-        try {
-            Activity activity = context.getActivity();
-            if (activity == null || !SPOTIFY_VERSION.equals(activity.getPackageManager().getPackageInfo(activity.getPackageName(), 0).versionName)) throw new IOException("Spotify " + SPOTIFY_VERSION + " is required for cached audio");
-        } catch (android.content.pm.PackageManager.NameNotFoundException error) {
-            throw new IOException("Spotify version is unavailable", error);
-        }
         Identity current = identity();
         if (current == null || !("spotify:track:" + trackId).equals(current.uri())) throw new IOException("Play the requested song before generating lyrics");
         Ticket ticket = new Ticket(this, trackId, generation, current, trackGid(trackId));
@@ -125,6 +117,12 @@ final class SpotifyCachedAudioSource implements AutoCloseable {
         if (waitMs <= 0 || waitMs > WINDOW_MS) throw new IOException("Invalid Spotify cache wait");
         if (Looper.myLooper() == Looper.getMainLooper()) throw new IOException("Read Spotify cached audio on a worker thread");
         require(ticket);
+        try {
+            Activity activity = context.getActivity();
+            if (activity == null || !SPOTIFY_VERSION.equals(activity.getPackageManager().getPackageInfo(activity.getPackageName(), 0).versionName)) throw new IOException("Spotify cache layout is unverified on this build; using Spotify download");
+        } catch (android.content.pm.PackageManager.NameNotFoundException error) {
+            throw new IOException("Spotify version is unavailable", error);
+        }
         if (target == null || !ticket.started.compareAndSet(false, true)) throw new IOException("Spotify cached audio request was already consumed");
         boolean locked = false, nativeAttempted = false, published = false, complete = false;
         byte[] clear = null;
@@ -252,10 +250,10 @@ final class SpotifyCachedAudioSource implements AutoCloseable {
         try {
             Object state = stateField.get(null);
             if (state == null || !Boolean.TRUE.equals(playing.invoke(state)) || Boolean.TRUE.equals(paused.invoke(state))) return null;
-            Object optional = track.invoke(state);
-            if (!Boolean.TRUE.equals(present.invoke(optional))) return null;
-            Object item = unwrap.invoke(optional), playbackId = playback.invoke(state);
-            String id = Boolean.TRUE.equals(present.invoke(playbackId)) ? String.valueOf(unwrap.invoke(playbackId)) : "";
+            Object item = SpotifyAudioApi.optional(track.invoke(state));
+            if (item == null) return null;
+            Object playbackId = SpotifyAudioApi.optional(playback.invoke(state));
+            String id = playbackId == null ? "" : String.valueOf(playbackId);
             Identity result = new Identity((String) uri.invoke(item), (String) uid.invoke(item), id, (String) session.invoke(state));
             return result.playback().isEmpty() || result.session() == null || result.session().isEmpty() ? null : result;
         } catch (Throwable error) {

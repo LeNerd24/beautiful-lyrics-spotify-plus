@@ -2,6 +2,7 @@ import { pinyin } from 'pinyin-pro';
 import { transliterate } from 'transliteration';
 import { toRomaji } from 'wanakana';
 import Aromize from './Aromize';
+import { romanizeHindi } from './hindi';
 import { languageCode, supportsPronunciation } from './languages';
 
 export function localRomanization(text: string, language: string): string | undefined {
@@ -10,6 +11,7 @@ export function localRomanization(text: string, language: string): string | unde
     if (!supportsPronunciation(language)) return undefined;
     if (code === 'ko') return Aromize(text, 'RevisedRomanizationTranscription');
     if (code === 'zh') return pinyin(text, { toneType: 'symbol', nonZh: 'consecutive' });
+    if (code === 'hi') return romanizeHindi(text);
     if (code === 'ja') return /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u{20000}-\u{323af}]/u.test(text) ? undefined : toRomaji(text);
 
     return transliterate(text);

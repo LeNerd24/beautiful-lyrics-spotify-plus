@@ -15,7 +15,7 @@ enum ReaderProbeRemoteCipherStatus { READER_REMOTE_IDLE = 0,
     READER_REMOTE_FAILED = -1,
     READER_REMOTE_CANCELLED = -2 };
 
-int lyrics_spotify_remote_cipher_configure(uintptr_t moduleBase);
+int lyrics_spotify_remote_cipher_configure_profile(uintptr_t moduleBase, size_t moduleSize, const uintptr_t *profile);
 int lyrics_spotify_remote_cipher_arm(uint64_t epoch, uint32_t handle, uint32_t threadId);
 
 int lyrics_spotify_remote_cipher_capture(uint64_t epoch, uint32_t handle, uintptr_t originalLR, const void *optional29);

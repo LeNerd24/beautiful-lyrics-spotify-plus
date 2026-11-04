@@ -34,6 +34,7 @@ import java.util.zip.GZIPInputStream;
 final class SpotifyAudioRuntime {
     private static final String GADGET_ASSET = "assets/native/frida-gadget-17.23.2-android-arm64.so.gz";
     private static final String SCRIPT_ASSET = "assets/native/spotify-cache-reader.js";
+    private static final String RESOLVER_ASSET = "assets/native/spotify-audio-resolver.js";
     private static final String GADGET_SHA256 = "73a83a2d33c19d86cb61e11e1ddc7250ee2f79b0f39579c563bff1258ec0b088";
     private static final long GADGET_BYTES = 25_237_232, MAX_LIBRARY_BYTES = 32L * 1024 * 1024, MAX_COMPRESSED_BYTES = 16L * 1024 * 1024, TIMEOUT_SECONDS = 30;
     private static final int MAX_SCRIPT_BYTES = 4 * 1024 * 1024;
@@ -79,6 +80,11 @@ final class SpotifyAudioRuntime {
 
             Object scriptValue = await(context.getApi().Assets.readText(scriptAsset), deadline);
             if (!(scriptValue instanceof String text) || text.trim().isEmpty()) throw new IOException("Spotify audio script asset is unavailable");
+            if (scriptAsset.equals("assets/native/spotify-remote-reader.js")) {
+                Object resolver = await(context.getApi().Assets.readText(RESOLVER_ASSET), deadline);
+                if (!(resolver instanceof String source) || source.trim().isEmpty()) throw new IOException("Spotify audio resolver asset is unavailable");
+                text = source + "\n" + text;
+            }
             byte[] scriptBytes = text.getBytes(StandardCharsets.UTF_8);
             if (scriptBytes.length > MAX_SCRIPT_BYTES) throw new IOException("Spotify audio script exceeds its size limit");
             if (!verified(library, GADGET_BYTES, GADGET_SHA256)) {
@@ -164,7 +170,11 @@ final class SpotifyAudioRuntime {
         boolean interrupted = cleanup && Thread.interrupted();
         try {
             while (System.nanoTime() < deadline) {
-                if (Files.isRegularFile(marker.toPath(), LinkOption.NOFOLLOW_LINKS) && marker.length() == 5 && new String(Files.readAllBytes(marker.toPath()), StandardCharsets.UTF_8).equals("ready")) return;
+                if (Files.isRegularFile(marker.toPath(), LinkOption.NOFOLLOW_LINKS) && marker.length() > 0 && marker.length() <= 8192) {
+                    String status = new String(Files.readAllBytes(marker.toPath()), StandardCharsets.UTF_8);
+                    if (status.equals("ready")) return;
+                    if (status.startsWith("error:")) throw new IOException("Spotify audio runtime rejected this build: " + status.substring(6));
+                }
                 try {
                     Thread.sleep(25);
                 } catch (InterruptedException error) {

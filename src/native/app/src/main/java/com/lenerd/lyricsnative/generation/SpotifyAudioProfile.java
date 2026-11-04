@@ -2,7 +2,7 @@ package com.lenerd.lyricsnative.generation;
 
 final class SpotifyAudioProfile {
     static String active(String source, String marker) {
-        return source + "\n;(() => { const profile = rpc.exports; rpc.exports = { async init(stage, parameters) { await profile.init(stage, parameters); File.writeAllText(" + quote(marker) + ", 'ready'); }, async dispose() { if (profile.dispose) await profile.dispose(); } }; })();\n";
+        return source + "\n;(() => { const profile = rpc.exports; rpc.exports = { async init(stage, parameters) { try { await profile.init(stage, parameters); File.writeAllText(" + quote(marker) + ", 'ready'); } catch (error) { File.writeAllText(" + quote(marker) + ", 'error:' + String(error && error.message || error).slice(0, 1024)); throw error; } }, async dispose() { if (profile.dispose) await profile.dispose(); } }; })();\n";
     }
 
     static String inactive(String marker) { return "rpc.exports = { init() { File.writeAllText(" + quote(marker) + ", 'ready'); } };\n"; }

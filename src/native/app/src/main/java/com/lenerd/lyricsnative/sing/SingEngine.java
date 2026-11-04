@@ -11,6 +11,7 @@ import com.lenerd.spotifyplus.sdk.hooks.*;
 import com.lenerd.spotifyplus.sdk.spotify.SpotifyPlusContext;
 
 import java.lang.reflect.Method;
+import java.util.Map;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -68,7 +69,7 @@ public final class SingEngine implements SpotifyPlusPlugin {
             VocalSeparator loaded = null;
 
             try {
-                loaded = new VocalSeparator(VocalSeparator.bundledModel());
+                loaded = VocalSeparator.forSpotify(context);
                 long started = System.nanoTime();
                 float[][] tone = new float[2][SpectralTransform.SAMPLES];
 
@@ -99,12 +100,16 @@ public final class SingEngine implements SpotifyPlusPlugin {
 
     private void installHooks() throws Exception {
         Class<?> type = hooks.findClass("com.spotify.playbacknative.AudioDriver");
+        Map<String, Method> methods = SingAudioContract.resolve(type, AudioTrack.class);
 
-        write = hooks.findMethod(type, "write", byte[].class, int.class);
-        end = hooks.findMethod(type, "trackHasEnded");
-        queued = hooks.findMethod(type, "getQueuedSize");
-        position = hooks.findMethod(type, "getPosition");
-        getTrack = hooks.findMethod(type, "getAudioTrack");
+        write = methods.get("write");
+        end = methods.get("trackHasEnded");
+        queued = methods.get("getQueuedSize");
+        position = methods.get("getPosition");
+        getTrack = methods.get("getAudioTrack");
+        Class<?> clock = Class.forName("com.lenerd.spotifyplus.module.Utils", false, SingEngine.class.getClassLoader());
+        progress = clock.getDeclaredMethod("getCurrentPlaybackPosition");
+        if (progress.getReturnType() != long.class || !java.lang.reflect.Modifier.isStatic(progress.getModifiers())) throw new NoSuchMethodException("Unsupported Spotify playback clock: " + progress);
 
         hooks.before(write, call -> {
             if (closed || !enabled || separator == null) return;
@@ -140,7 +145,7 @@ public final class SingEngine implements SpotifyPlusPlugin {
             }
         });
 
-        hooks.after(hooks.findMethod(type, "getFreeSize"), call -> {
+        hooks.after(methods.get("getFreeSize"), call -> {
             RealtimeBuffer current = mixer;
             Object owner = driver;
             long base = outputBase;
@@ -151,9 +156,6 @@ public final class SingEngine implements SpotifyPlusPlugin {
                 if (current == mixer) call.setResult((int) Math.max(0, inputLimitFrames - pending) * current.frameBytes());
             }
         });
-
-        Class<?> clock = Class.forName("com.lenerd.spotifyplus.module.Utils", false, SingEngine.class.getClassLoader());
-        progress = clock.getDeclaredMethod("getCurrentPlaybackPosition");
 
         hooks.after(progress, call -> {
             RealtimeBuffer current = mixer;
@@ -170,12 +172,12 @@ public final class SingEngine implements SpotifyPlusPlugin {
         });
 
         for (String name : new String[] {"flush", "destroy"}) {
-            hooks.before(hooks.findMethod(type, name), call -> {
+            hooks.before(methods.get(name), call -> {
                 if (call.getThisObject() == driver) reset();
             });
         }
 
-        hooks.before(hooks.findMethod(type, "startPlayback"), call -> {
+        hooks.before(methods.get("startPlayback"), call -> {
             if (call.getThisObject() == driver && endDelivered) reset();
         });
 
@@ -440,6 +442,8 @@ public final class SingEngine implements SpotifyPlusPlugin {
                 if (separator != null) separator.close();
             } catch (Exception error) {
                 Log.e(TAG, "Session close failed", error);
+            } finally {
+                QnnRuntime.unload();
             }
         });
 

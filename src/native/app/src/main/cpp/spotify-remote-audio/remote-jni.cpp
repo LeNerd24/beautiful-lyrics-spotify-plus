@@ -1,4 +1,5 @@
 #include "remote-song-cipher.h"
+#include "../resident-gadget.h"
 #include <jni.h>
 #include <dlfcn.h>
 #include <atomic>
@@ -9,7 +10,7 @@
 
 namespace {
     std::mutex runtimeMutex;
-    void *runtime = nullptr;
+    bool runtimeLoaded = false;
     jclass anchor = nullptr;
     std::atomic<uint64_t> currentEpoch{0};
     std::atomic<int> configured{0};
@@ -25,8 +26,8 @@ namespace {
 
 extern "C" uint64_t lyrics_spotify_remote_bridge_epoch() { return currentEpoch.load(); }
 extern "C" int lyrics_spotify_remote_bridge_active() { return currentEpoch.load() != 0; }
-extern "C" int lyrics_spotify_remote_bridge_configure(uintptr_t base) {
-    int result = lyrics_spotify_remote_cipher_configure(base);
+extern "C" int lyrics_spotify_remote_bridge_configure_profile(uintptr_t base, size_t size, const uintptr_t *profile) {
+    int result = lyrics_spotify_remote_cipher_configure_profile(base, size, profile);
     configured.store(result);
     return result;
 }
@@ -40,9 +41,9 @@ extern "C" JNIEXPORT jboolean JNICALL Java_com_lenerd_lyricsnative_generation_Re
     if (!name) return JNI_FALSE;
     currentEpoch.store(static_cast<uint64_t>(epoch));
     configured.store(0);
-    if (!runtime) runtime = dlopen(name, RTLD_NOW | RTLD_LOCAL);
+    if (!runtimeLoaded) runtimeLoaded = lyrics_gadget_reuse_or_load(name);
     env->ReleaseStringUTFChars(path, name);
-    if (runtime) return JNI_TRUE;
+    if (runtimeLoaded) return JNI_TRUE;
     currentEpoch.store(0);
     return JNI_FALSE;
 }

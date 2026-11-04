@@ -9,7 +9,7 @@ final class GenerationPlan {
     record Chunk(List<Line> lines, double start, double end) { }
 
     private static final int STARTUP_LINES = 8;
-    private static final double WINDOW_MS = 12000, CONTEXT_MS = 1500;
+    private static final double WINDOW_MS = 6000, CONTEXT_MS = 1500;
 
     private GenerationPlan() { }
 

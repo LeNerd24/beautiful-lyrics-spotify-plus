@@ -6,7 +6,7 @@ import { cloneLyrics } from './platform-utils';
 import { createVocalGrouper } from './vocal-grouping';
 
 type NaturalAlignment = 'right' | 'left';
-type RomanizedLanguage = 'chinese' | 'japanese' | 'korean' | 'none';
+type RomanizedLanguage = 'chinese' | 'japanese' | 'korean' | 'hindi' | 'none';
 type BaseInformation = {
     naturalAlignment: NaturalAlignment;
     language: string;
@@ -30,6 +30,13 @@ const rightToLeftLanguages = [
 export const minimumInterludeDuration: number = 4;
 export const endInterludeEarly: number = 0.25;
 
+// franc often scores short Hindi lyrics as a closely related Hindi-belt language (e.g. Magahi or Bhojpuri)
+const hindiBelt = ['mag', 'bho', 'mai', 'awa', 'hne', 'bra', 'bgc', 'raj', 'mwr', 'mup'];
+const detectLanguage = (text: string): string => {
+    const language = franc(text);
+    return hindiBelt.includes(language) ? 'hin' : language;
+};
+
 const getNaturalAlignment = (language: string): NaturalAlignment => { return rightToLeftLanguages.includes(language) ? 'right' : 'left'; }
 
 const generateRomanization = <L extends TextMetadata>(metadata: L, information: BaseInformation): void => {
@@ -37,6 +44,7 @@ const generateRomanization = <L extends TextMetadata>(metadata: L, information: 
     if (information.language === 'kor') information.romanizedLanguage = 'korean';
     if (information.language === 'cmn') information.romanizedLanguage = 'chinese';
     if (information.language === 'jpn') information.romanizedLanguage = 'japanese';
+    if (information.language === 'hin') information.romanizedLanguage = 'hindi';
 };
 
 const applyLyricOffset = (lyrics: Lyrics): void => {
@@ -129,7 +137,7 @@ export const transformLyrics = (providerLyrics: Lyrics): TransformedLyrics => {
             textToProcess += `\n${lyrics.Lines[index].Text}`;
         }
 
-        const language = franc(textToProcess);
+        const language = detectLanguage(textToProcess);
 
         lyrics.language = language;
         lyrics.naturalAlignment = getNaturalAlignment(language);
@@ -146,7 +154,7 @@ export const transformLyrics = (providerLyrics: Lyrics): TransformedLyrics => {
         }
 
         const textToProcess = Lines.join('\n');
-        const language = franc(textToProcess);
+        const language = detectLanguage(textToProcess);
 
         lyrics.language = language;
         lyrics.naturalAlignment = getNaturalAlignment(language);
@@ -167,7 +175,7 @@ export const transformLyrics = (providerLyrics: Lyrics): TransformedLyrics => {
         }
 
         const textToProcess = Lines.join('\n');
-        const language = franc(textToProcess);
+        const language = detectLanguage(textToProcess);
 
         lyrics.language = language;
         lyrics.naturalAlignment = getNaturalAlignment(language);

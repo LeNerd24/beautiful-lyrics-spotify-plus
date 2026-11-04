@@ -1,13 +1,24 @@
 package com.lenerd.lyricsnative.sing;
 
 import ai.onnxruntime.*;
+import android.util.Log;
+import com.lenerd.spotifyplus.sdk.spotify.SpotifyPlusContext;
 import java.nio.FloatBuffer;
+import java.io.File;
 import java.util.Map;
 
 public final class VocalSeparator implements AutoCloseable {
     private final OrtEnvironment environment = OrtEnvironment.getEnvironment();
-    private final OrtSession session;
+    private OrtSession session;
+    private OrtSession.SessionOptions sessionOptions;
+    private byte[] fallbackModel;
+    private boolean qnn;
+    private final File qnnDirectory;
+    private final String performance;
     private final SpectralTransform transform = new SpectralTransform();
+    private NativeSpectralTransform nativeTransform;
+    private final boolean fastTransform;
+    private final String postRunPerformance;
     private final float compensation;
 
     public static byte[] bundledModel() throws java.io.IOException {
@@ -28,9 +39,79 @@ public final class VocalSeparator implements AutoCloseable {
     }
 
     public VocalSeparator(byte[] model, float compensation) throws OrtException {
-        this.compensation = compensation;
+        this(model, compensation, null);
+    }
 
-        try (var options = new OrtSession.SessionOptions()) {
+    public static VocalSeparator forSpotify(SpotifyPlusContext context) throws OrtException {
+        return forContext(context, "power_saver");
+    }
+
+    public static VocalSeparator forGeneration(SpotifyPlusContext context) throws OrtException {
+        return forContext(context, "burst");
+    }
+
+    private static VocalSeparator forContext(SpotifyPlusContext context, String performance) throws OrtException {
+        byte[] model;
+        try {
+            model = bundledModel();
+        } catch (java.io.IOException error) {
+            throw new IllegalStateException("Cannot read vocal model", error);
+        }
+        File directory = null;
+        try {
+            QnnRuntime.requireDspAccess();
+            directory = QnnRuntime.install(context);
+        } catch (Exception | LinkageError error) {
+            if (error instanceof InterruptedException) Thread.currentThread().interrupt();
+            Log.w("SpotifySing", "QNN runtime unavailable; using CPU", error);
+        }
+        return new VocalSeparator(model, 1.03f, directory, performance);
+    }
+
+    VocalSeparator(byte[] model, float compensation, File directory) throws OrtException {
+        this(model, compensation, directory, "power_saver");
+    }
+
+    VocalSeparator(byte[] model, float compensation, File directory, String performance) throws OrtException {
+        this(model, compensation, directory, performance, performance.equals("burst"), "power_saver");
+    }
+
+    VocalSeparator(byte[] model, float compensation, File directory, String performance, boolean fastTransform, String postRunPerformance) throws OrtException {
+        this.compensation = compensation;
+        this.fastTransform = fastTransform;
+        this.postRunPerformance = postRunPerformance;
+        qnnDirectory = directory;
+        this.performance = performance;
+
+        if (directory != null && OrtEnvironment.getAvailableProviders().contains(OrtProvider.QNN)) {
+            try {
+                openSession(model, true);
+                fallbackModel = model;
+                initializeTransform();
+                return;
+            } catch (OrtException | IllegalStateException | LinkageError error) {
+                Log.w("SpotifySing", "QNN HTP initialization failed; using CPU", error);
+            }
+        }
+
+        openSession(model, false);
+        initializeTransform();
+    }
+
+    private void initializeTransform() {
+        if (!fastTransform) return;
+        try {
+            nativeTransform = new NativeSpectralTransform();
+            Log.i("SpotifySing", "Generation spectral backend=native NEON");
+        } catch (RuntimeException | LinkageError error) {
+            Log.w("SpotifySing", "Native spectral transform unavailable; retaining Java", error);
+        }
+    }
+
+    private void openSession(byte[] model, boolean accelerate) throws OrtException {
+        var options = new OrtSession.SessionOptions();
+        OrtSession created = null;
+        try {
             options.setIntraOpNumThreads(4);
             options.setInterOpNumThreads(1);
 
@@ -38,45 +119,95 @@ public final class VocalSeparator implements AutoCloseable {
             options.addConfigEntry("session.inter_op.allow_spinning", "0");
             options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT);
 
-            session = environment.createSession(model, options);
-        }
+            if (accelerate) configureQnn(options, qnnDirectory, performance);
+            created = environment.createSession(model, options);
+            var shape = ((TensorInfo) created.getInputInfo().get("input").getInfo()).getShape();
+            if (shape.length != 4 || shape[1] != 4 || shape[2] != SpectralTransform.BINS) throw new IllegalArgumentException("Wrong MDX model shape");
 
-        var shape = ((TensorInfo) session.getInputInfo().get("input").getInfo()).getShape();
-
-        if (shape.length != 4 || shape[1] != 4 || shape[2] != SpectralTransform.BINS) {
-            session.close();
-
-            throw new IllegalArgumentException("Wrong MDX model shape");
+            session = created;
+            sessionOptions = options;
+            qnn = accelerate;
+            Log.i("SpotifySing", "MODEL_BACKEND=" + backend());
+        } catch (OrtException | RuntimeException | LinkageError error) {
+            if (created != null) {
+                try {
+                    created.close();
+                } catch (OrtException cleanup) {
+                    error.addSuppressed(cleanup);
+                }
+            }
+            options.close();
+            throw error;
         }
     }
 
-    public float[][] separate(float[][] pcm) throws OrtException {
-        float[] features = transform.forward(pcm);
+    static void configureQnn(OrtSession.SessionOptions options, File directory) throws OrtException {
+        configureQnn(options, directory, "power_saver");
+    }
 
-        try (var input = OnnxTensor.createTensor(environment, FloatBuffer.wrap(features), new long[] {1, 4, SpectralTransform.BINS, SpectralTransform.TIMES});
-            var result = session.run(Map.of("input", input))) {
-            FloatBuffer buffer = ((OnnxTensor) result.get(0)).getFloatBuffer();
-            float[] prediction = new float[features.length];
+    private static void configureQnn(OrtSession.SessionOptions options, File directory, String performance) throws OrtException {
+        options.addConfigEntry("session.disable_cpu_ep_fallback", "1");
+        options.setSymbolicDimensionValue("batch_size", 1);
+        options.setSymbolicDimensionValue("frames", SpectralTransform.TIMES);
+        QnnRuntime.configure(options, directory, "htp", performance);
+    }
 
-            buffer.get(prediction);
+    public String backend() { return qnn ? "Qualcomm NPU (QNN HTP, full model)" : "CPU"; }
 
-            for (float value : prediction) {
-                if (!Float.isFinite(value)) throw new IllegalStateException("Nonfinite model output");
+    public synchronized float[][] separate(float[][] pcm) throws OrtException {
+        if (session == null) throw new IllegalStateException("Vocal separator is closed");
+        float[] features = nativeTransform == null ? transform.forward(pcm) : nativeTransform.forward(pcm);
+        float[] prediction;
+        try {
+            prediction = predict(features);
+        } catch (OrtException | IllegalStateException error) {
+            if (!qnn) throw error;
+            Log.w("SpotifySing", "QNN HTP inference failed; retrying on CPU", error);
+            byte[] model = fallbackModel;
+            close();
+            openSession(model, false);
+            prediction = predict(features);
+        }
+
+        float[][] vocals = nativeTransform == null ? transform.inverse(prediction) : nativeTransform.inverse(prediction);
+        for (float[] channel : vocals) {
+            for (int i = 0; i < channel.length; i++) channel[i] *= compensation;
+        }
+        return vocals;
+    }
+
+    private float[] predict(float[] features) throws OrtException {
+        try (var input = OnnxTensor.createTensor(environment, FloatBuffer.wrap(features), new long[] {1, 4, SpectralTransform.BINS, SpectralTransform.TIMES}); var runOptions = new OrtSession.RunOptions()) {
+            if (qnn) {
+                runOptions.addRunConfigEntry("qnn.htp_perf_mode", performance);
+                runOptions.addRunConfigEntry("qnn.htp_perf_mode_post_run", postRunPerformance);
             }
+            try (var result = session.run(Map.of("input", input), runOptions)) {
+                FloatBuffer buffer = ((OnnxTensor) result.get(0)).getFloatBuffer();
+                float[] prediction = new float[features.length];
 
-            float[][] vocals = transform.inverse(prediction);
-            for (float[] channel : vocals) {
-                for (int i = 0; i < channel.length; i++) {
-                    channel[i] *= compensation;
+                buffer.get(prediction);
+
+                for (float value : prediction) {
+                    if (!Float.isFinite(value)) throw new IllegalStateException("Nonfinite model output");
                 }
-            }
 
-            return vocals;
+                return prediction;
+            }
         }
     }
 
     @Override
-    public void close() throws OrtException {
-        session.close();
+    public synchronized void close() throws OrtException {
+        try {
+            if (session != null) session.close();
+        } finally {
+            session = null;
+            if (sessionOptions != null) sessionOptions.close();
+            sessionOptions = null;
+            fallbackModel = null;
+            if (nativeTransform != null) nativeTransform.close();
+            nativeTransform = null;
+        }
     }
 }

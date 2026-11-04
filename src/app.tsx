@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { CommonViewProps, Image, createNativeComponent, Text, View } from 'spotifyplus/react';
 import Animated, { measure, useAnimatedStyle, useFrameCallback, usePlaybackClock, useReducedMotion, useSharedValue, withTiming } from 'spotifyplus/react/Animated';
 import { SpotifyTrack } from 'spotifyplus/entities';
@@ -18,6 +18,8 @@ import { sameLanguage, supportsPronunciation, targetLanguage } from './Lyrics/la
 import { useTranslation } from './Lyrics/use-translation';
 import { generationStore, setGenerationSource, startGeneration } from './Lyrics/generation-state';
 import { TrackGenerationProgress } from './Components/generation-progress';
+import { waitForCurrentTrack } from './Lyrics/current-track';
+import { createAbortController } from './Lyrics/platform-utils';
 
 const AUTO_GENERATE_DELAY_MS = 5000;
 
@@ -32,6 +34,7 @@ const App = ({ headerRef, headerGesture }: { headerRef?: React.RefObject<View | 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string>();
     const [songRevision, setSongRevision] = useState(0);
+    const expectedTrackUri = useRef<string | undefined>(undefined);
     const [paused, setPaused] = useState(() => SpotifyPlus.Player.getState().isPaused);
     const [localPlayback, setLocalPlayback] = useState(false);
     const [liked, setLiked] = useState(false);
@@ -78,7 +81,10 @@ const App = ({ headerRef, headerGesture }: { headerRef?: React.RefObject<View | 
     }, [controlsVisible, controlsOpacity, reducedMotion]);
 
     useEffect(() => { visibility.setPaused(paused); }, [paused, visibility]);
-    useEffect(() => () => visibility.dispose(), [visibility]);
+    useLayoutEffect(() => {
+        visibility.activate();
+        return () => visibility.dispose();
+    }, [visibility]);
 
     useEffect(() => {
         let retry: ReturnType<typeof setTimeout> | undefined;
@@ -105,7 +111,10 @@ const App = ({ headerRef, headerGesture }: { headerRef?: React.RefObject<View | 
 
     useEffect(() => {
         const playPause = (event: { isPaused: boolean }) => { visibility.setPaused(event.isPaused); setPaused(event.isPaused); };
-        const songChanged = () => setSongRevision(value => value + 1);
+        const songChanged = (event: { uri?: string | null }) => {
+            expectedTrackUri.current = event.uri ?? undefined;
+            setSongRevision(value => value + 1);
+        };
 
         SpotifyPlus.Events.on('playPause', playPause);
         SpotifyPlus.Events.on('songChanged', songChanged);
@@ -137,14 +146,20 @@ const App = ({ headerRef, headerGesture }: { headerRef?: React.RefObject<View | 
 
     useEffect(() => {
         let cancelled = false;
+        const controller = createAbortController();
 
         const loadLyrics = async () => {
-            setLoading(true); setError(undefined); setLoadedLyrics(undefined);
+            setLoading(true); setError(undefined); setLoadedLyrics(undefined); setTrack(undefined);
 
             try {
-                const current = SpotifyPlus.Player.getCurrentTrack();
-                if (!current) throw new Error('No track is playing');
+                const current = await waitForCurrentTrack(() => SpotifyPlus.Player.getCurrentTrack(), controller.signal, expectedTrackUri.current, () => {
+                    if (cancelled) return;
+                    setLoading(false);
+                    setError('Waiting for the current track…');
+                });
+                if (cancelled) return;
 
+                setLoading(true); setError(undefined);
                 setTrack(current);
 
                 try {
@@ -153,7 +168,7 @@ const App = ({ headerRef, headerGesture }: { headerRef?: React.RefObject<View | 
                     console.log('Could not read liked state', String(e)); updateLiked(false);
                 }
 
-                const response = await fetch(`https://spotifyplus-api.devon-shoutz.workers.dev/api/lyrics/${current.id}`);
+                const response = await fetch(`https://spotifyplus-api.devon-shoutz.workers.dev/api/lyrics/${current.id}`, { signal: controller.signal });
                 if (!response.ok) throw new Error('Lyrics are unavailable for this song');
 
                 const transformed = transformLyrics(await response.json() as any);
@@ -170,7 +185,7 @@ const App = ({ headerRef, headerGesture }: { headerRef?: React.RefObject<View | 
 
         loadLyrics();
 
-        return () => { cancelled = true; };
+        return () => { cancelled = true; controller.abort(); };
     }, [songRevision, updateLiked]);
 
     useEffect(() => {

@@ -220,7 +220,7 @@ export function buildStaggerDelays(layout: ScrollLayout, offset: number, activeI
     'worklet';
 
     let delay = 0, step = 50;
-    return layout.heights.map((height, index) => {
+    const delays = layout.heights.map((height, index) => {
         const scheduled = delay;
 
         if (height > 0 && layout.tops[index] + height >= offset) {
@@ -233,4 +233,5 @@ export function buildStaggerDelays(layout: ScrollLayout, offset: number, activeI
 
         return scheduled;
     });
+    return [...delays, delays[delays.length - 1] ?? 0];
 }
