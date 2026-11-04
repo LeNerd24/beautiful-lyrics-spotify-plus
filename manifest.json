@@ -22,5 +22,6 @@
     "native": {
         "apk": "lyrics.apk",
         "pluginClass": "com.lenerd.lyricsnative.NativePlugin"
-    }
+    },
+    "targetSpotifyVersion": "9.1.96.x"
 }
