@@ -42653,7 +42653,7 @@ var items = [{
   id: "translationLanguage",
   type: "text",
   label: "Translate lyrics into",
-  description: "Language code, for example en (English), fr (French), or zh-TW (Traditional Chinese).",
+  description: "The language code for the language you want to translate songs into.",
   value: current.translationLanguage,
   placeholder: "en",
   maxLength: 20

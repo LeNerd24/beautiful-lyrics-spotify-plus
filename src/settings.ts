@@ -12,7 +12,7 @@ const defaults: LyricsSettings = { translationLanguage: 'en', swapTranslatedLine
 let current = { ...defaults, ...SpotifyPlus.Platform.Storage.get<Partial<LyricsSettings>>('lyrics.translation.settings') };
 const listeners = new Set<(value: LyricsSettings) => void>();
 const items = [
-    { id: 'translationLanguage', type: 'text' as const, label: 'Translate lyrics into', description: 'Language code, for example en (English), fr (French), or zh-TW (Traditional Chinese).', value: current.translationLanguage, placeholder: 'en', maxLength: 20 },
+    { id: 'translationLanguage', type: 'text' as const, label: 'Translate lyrics into', description: 'The language code for the language you want to translate songs into.', value: current.translationLanguage, placeholder: 'en', maxLength: 20 },
     { id: 'swapTranslatedLines', type: 'toggle' as const, label: 'Make translations the lead lyrics', description: 'Show the original lyrics in smaller text underneath when translations are enabled.', value: current.swapTranslatedLines },
     { id: 'hideOriginalLyrics', type: 'toggle' as const, label: 'Hide original lyrics', description: 'Show only the translated lead lyrics when translations are enabled.', value: current.hideOriginalLyrics },
     { id: 'pronunciationAsLead', type: 'toggle' as const, label: 'Make pronunciation the lead lyrics', description: 'Replace the original lyrics with their pronunciation when pronunciation is enabled, instead of showing it underneath.', value: current.pronunciationAsLead },

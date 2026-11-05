@@ -23,3 +23,10 @@
 !/src/native/app/src/test/java/com/spotify/contentdelivery/mediaprocessing/CreateProcessorResult.java
 !/src/native/app/src/test/java/com/spotify/connectivity/httpretrofit/RetrofitMaker.java
 /verification
+verify-audio-assets.mjs
+verify-audio-device.mjs
+verify-native-audio.mjs
+verify-sing-compatibility.mjs
+verify-sing-device.mjs
+verify-audio-assets.mjs
+verify-audio-assets.mjs
