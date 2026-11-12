@@ -1,6 +1,7 @@
 import { ExtensionSetting, SpotifyPlus } from 'spotifyplus';
 import { isLyricsOpen, LyricsOpenTrigger, LyricsOverlay, openLyrics } from './Components/lyrics-overlay';
 import { LINE_BLUR_KEY, lineBlurSetting } from './Components/player-model';
+import { displaySettingItems } from './display-settings';
 import { canGenerate, GenerationBegin, GenerationLine, GenerationProgress, GenerationResult, generationStore, startGeneration } from './Lyrics/generation-state';
 
 const sparkles = SpotifyPlus.Assets.image('assets/images/sparkles.png');
@@ -18,7 +19,7 @@ const animationSetting: Extract<ExtensionSetting, { type: 'select' }> = {
 const blurSetting: Extract<ExtensionSetting, { type: 'slider' }> = {
     id: LINE_BLUR_KEY,
     type: 'slider',
-    label: 'Inactive line blur',
+    label: 'Line blur',
     description: 'How much to blur the lines that are not being sung. All the way down turns blur off.',
     value: lineBlurSetting(SpotifyPlus.Platform.Storage.get(LINE_BLUR_KEY)),
     min: 0,
@@ -26,7 +27,7 @@ const blurSetting: Extract<ExtensionSetting, { type: 'slider' }> = {
     step: 5
 };
 
-SpotifyPlus.Settings.registerSetting({ title: 'Lyrics', items: [animationSetting, blurSetting] });
+SpotifyPlus.Settings.registerSetting({ title: 'Lyrics', items: [animationSetting, blurSetting, ...displaySettingItems] });
 
 SpotifyPlus.Events.on('settings.changed', (payload: unknown) => {
     const setting = payload as ExtensionSetting | undefined;
