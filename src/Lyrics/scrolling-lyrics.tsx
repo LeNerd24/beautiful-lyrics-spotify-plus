@@ -15,6 +15,7 @@ import { LyricsInteractionProps, LyricsViewport } from '../Components/player-chr
 import { lyricTapAction, revealsEarlierLyrics } from '../Components/player-model';
 import { LyricsPresentation } from './presentation';
 import LyricsCredits, { CREDITS_ESTIMATED_HEIGHT, hasCredits } from '../Components/lyrics-credits';
+import { DisplaySettings, useDisplaySettings } from '../display-settings';
 
 type SyncedLyrics = LineSyncedLyrics | SyllableSyncedLyrics;
 type LyricItem = SyncedLyrics['Content'][number];
@@ -68,12 +69,16 @@ const ScrollingLyrics = ({ lyrics, playbackMs, animationStyle, presentation, ali
     const interludeTimelineValue = useSharedValue(interludeTimeline);
     const interludesValue = useSharedValue(interludes);
     const alignValue = useSharedValue(alignPosition);
+    const displaySettings = useDisplaySettings();
+    const lyricGap = LYRIC_GAP * displaySettings.lineSpacing / 100;
+    const gapValue = useSharedValue(lyricGap);
     const blurValue = useSharedValue(lineBlur);
     const blurFocus = useSharedValue(-1);
     useEffect(() => {
         alignValue.value = alignPosition;
         blurValue.value = lineBlur;
-    }, [alignPosition, alignValue, lineBlur, blurValue]);
+        gapValue.value = lyricGap;
+    }, [alignPosition, alignValue, lineBlur, blurValue, lyricGap, gapValue]);
     useEffect(() => {
         timelineValue.value = timeline;
         interludeTimelineValue.value = interludeTimeline;
@@ -90,7 +95,7 @@ const ScrollingLyrics = ({ lyrics, playbackMs, animationStyle, presentation, ali
     const heights = useSharedValue<number[]>(lyrics.Content.map(item => item.Type === 'Interlude' ? INTERLUDE_HEIGHT : ESTIMATED_LINE_HEIGHT));
     const measurementVersion = useSharedValue(0);
     const measurementTick = useSharedValue(0);
-    const layout = useSharedValue<ScrollLayout>(buildScrollLayout(heights.value, 0, interludes));
+    const layout = useSharedValue<ScrollLayout>(buildScrollLayout(heights.value, 0, interludes, -1, alignPosition, lyricGap));
 
     const followOffset = useSharedValue(0);
     const manualOffset = useSharedValue(0);
@@ -128,7 +133,7 @@ const ScrollingLyrics = ({ lyrics, playbackMs, animationStyle, presentation, ali
         forceIndex: -1,
         first: 0,
         last: 3,
-        geometry: buildScrollLayout(lyrics.Content.map(item => item.Type === 'Interlude' ? INTERLUDE_HEIGHT : ESTIMATED_LINE_HEIGHT), 0, interludes),
+        geometry: buildScrollLayout(lyrics.Content.map(item => item.Type === 'Interlude' ? INTERLUDE_HEIGHT : ESTIMATED_LINE_HEIGHT), 0, interludes, -1, alignPosition, lyricGap),
         followPaused: false,
         motion: {
             from: 0,
@@ -209,9 +214,9 @@ const ScrollingLyrics = ({ lyrics, playbackMs, animationStyle, presentation, ali
             state.lastMeasure = frame.timestamp;
         }
 
-        if (viewportHeight.value > 0 && (Math.abs(viewportHeight.value - state.geometry.viewportHeight) > 0.5 || alignValue.value !== state.geometry.alignPosition || state.measurementVersion !== measurementVersion.value || interludeChanged)) {
+        if (viewportHeight.value > 0 && (Math.abs(viewportHeight.value - state.geometry.viewportHeight) > 0.5 || alignValue.value !== state.geometry.alignPosition || gapValue.value !== state.geometry.lyricGap || state.measurementVersion !== measurementVersion.value || interludeChanged)) {
             const oldLayout = state.geometry;
-            const nextLayout = buildScrollLayout(heights.value, viewportHeight.value, interludes, expandedInterlude, alignValue.value);
+            const nextLayout = buildScrollLayout(heights.value, viewportHeight.value, interludes, expandedInterlude, alignValue.value, gapValue.value);
 
             if (state.initialized && suspended.value) {
                 const offset = followOffset.value + manualOffset.value + layoutAdjustment.value;
@@ -343,7 +348,7 @@ const ScrollingLyrics = ({ lyrics, playbackMs, animationStyle, presentation, ali
 
         state.activeIndex = activeIndex;
         state.lastPlayback = position;
-    }, [alignValue, blurFocus, coast, command, controller, density, dragging, followOffset, heights, interludesValue, interludeTimelineValue, lastInteraction, layout, layoutAdjustment, manualOffset, maxOffset, measurementTick, measurementVersion, momentum, playbackMs, reducedMotion, seekRequest, suspended, timelineValue, touching, updateWindow, viewportHeight, viewportWidth]);
+    }, [alignValue, blurFocus, coast, gapValue, command, controller, density, dragging, followOffset, heights, interludesValue, interludeTimelineValue, lastInteraction, layout, layoutAdjustment, manualOffset, maxOffset, measurementTick, measurementVersion, momentum, playbackMs, reducedMotion, seekRequest, suspended, timelineValue, touching, updateWindow, viewportHeight, viewportWidth]);
 
     useFrameCallback(onFrame);
 
@@ -482,7 +487,7 @@ const ScrollingLyrics = ({ lyrics, playbackMs, animationStyle, presentation, ali
                         const index = window.first + relativeIndex;
                         return (
                             <ScrollingLine key={index} item={item} index={index} playbackMs={playbackMs} animationStyle={animationStyle}
-                                presentation={presentation}
+                                presentation={presentation} displaySettings={displaySettings}
                                 interludeOppositeAligned={interludeAlignments[index]}
                                 layout={layout} heights={heights} measurementVersion={measurementVersion}
                                 measurementTick={measurementTick} density={density}
@@ -502,6 +507,7 @@ const ScrollingLyrics = ({ lyrics, playbackMs, animationStyle, presentation, ali
 
 type RowProps = {
     presentation?: LyricsPresentation;
+    displaySettings: DisplaySettings;
     interludeOppositeAligned: boolean;
     animationStyle: AnimationStyle;
     item: LyricItem;
@@ -521,7 +527,7 @@ type RowProps = {
     onRevealControls: () => void;
 };
 
-const ScrollingLine = React.memo(({ item, index, range, playbackMs, animationStyle, presentation, interludeOppositeAligned, layout, heights, measurementVersion, measurementTick, density, pan, controlsShown, onSeekLine, onRevealControls, viewportWidth }: RowProps) => {
+const ScrollingLine = React.memo(({ item, index, range, playbackMs, animationStyle, presentation, displaySettings, interludeOppositeAligned, layout, heights, measurementVersion, measurementTick, density, pan, controlsShown, onSeekLine, onRevealControls, viewportWidth }: RowProps) => {
     const row = useRef<View | null>(null);
     const pressed = useSharedValue(false);
     const pressedStyle = useAnimatedStyle(() => {
@@ -559,7 +565,7 @@ const ScrollingLine = React.memo(({ item, index, range, playbackMs, animationSty
         if (item.Type === 'Vocal') {
             measured.value = { width: -1, height: 0, stable: false };
         }
-    }, [animationStyle, item, presentation?.translation, presentation?.pronunciation, presentation?.swapTranslatedLines, presentation?.hideOriginalLyrics, presentation?.pronunciationAsLead, measured]);
+    }, [animationStyle, item, presentation?.translation, presentation?.pronunciation, presentation?.swapTranslatedLines, presentation?.hideOriginalLyrics, presentation?.pronunciationAsLead, displaySettings.font, displaySettings.fontSize, measured]);
 
     const geometryProps = useAnimatedProps(() => {
         'worklet';
@@ -632,7 +638,7 @@ const CreditsRow = React.memo(({ lyrics, layout }: { lyrics: SyncedLyrics; layou
         const geometry = layout.value;
         const transition = geometry.transition;
         const last = index - 1;
-        const top = last >= 0 ? (geometry.tops[last] ?? 0) + (geometry.heights[last] ?? 0) + LYRIC_GAP : TOP_PADDING;
+        const top = last >= 0 ? (geometry.tops[last] ?? 0) + (geometry.heights[last] ?? 0) + geometry.lyricGap : TOP_PADDING;
 
         return {
             rowGeometry: [top, CREDITS_ESTIMATED_HEIGHT,

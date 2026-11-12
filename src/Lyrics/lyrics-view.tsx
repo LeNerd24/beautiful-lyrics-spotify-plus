@@ -2,7 +2,8 @@ import React, { useRef, useState } from 'react';
 import { Text, ScrollView, View } from 'spotifyplus/react';
 import { TransformedLyrics } from './lyric-utilities';
 import { useAnimatedProps, usePlaybackClock } from 'spotifyplus/react/Animated';
-import { LyricsFontFamily } from '../theme/fonts';
+import { lyricsFontFamily } from '../theme/fonts';
+import { scaledFontSize, useDisplaySettings } from '../display-settings';
 import ScrollingLyrics from './scrolling-lyrics';
 import { AnimationStyle } from '../Entities/animation-style';
 import { LyricsInteractionProps, LyricsViewport } from '../Components/player-chrome';
@@ -28,6 +29,9 @@ const LyricsView = ({ lyrics, ...props }: Props) => {
 
 const StaticLyrics = ({ lyrics, controlsOpacity, controlsHeight, onRevealControls, presentation }: Props) => {
     const previousOffset = useRef(0);
+    const settings = useDisplaySettings();
+    const fontFamily = lyricsFontFamily(settings.font);
+    const spacing = Math.round(14 * settings.lineSpacing / 100);
     const mask = useAnimatedProps(() => {
         'worklet';
 
@@ -45,10 +49,10 @@ const StaticLyrics = ({ lyrics, controlsOpacity, controlsHeight, onRevealControl
             }}>
                 {lyrics.Lines.map((line, index) => {
                     const display = linePresentation(line.Text, line.TranslatedText, line.RomanizedText, presentation);
-                    return <View key={index} onPress={onRevealControls} style={{ paddingHorizontal: 28, paddingVertical: 14 }}>
-                        <Text style={{ fontFamily: LyricsFontFamily, fontSize: 32, color: '#BFFFFFFF' }}>{display.lead}</Text>
-                        {display.secondary && <Text style={{ fontFamily: LyricsFontFamily, fontSize: 18, color: '#BFFFFFFF', marginTop: 3 }}>{display.secondary}</Text>}
-                        {display.pronunciation && <Text style={{ fontFamily: LyricsFontFamily, fontSize: 18, color: '#BFFFFFFF', marginTop: 3 }}>{display.pronunciation}</Text>}
+                    return <View key={index} onPress={onRevealControls} style={{ paddingHorizontal: 28, paddingVertical: spacing }}>
+                        <Text style={{ fontFamily, fontSize: scaledFontSize(32, settings), color: '#BFFFFFFF' }}>{display.lead}</Text>
+                        {display.secondary && <Text style={{ fontFamily, fontSize: scaledFontSize(18, settings), color: '#BFFFFFFF', marginTop: 3 }}>{display.secondary}</Text>}
+                        {display.pronunciation && <Text style={{ fontFamily, fontSize: scaledFontSize(18, settings), color: '#BFFFFFFF', marginTop: 3 }}>{display.pronunciation}</Text>}
                     </View>;
                 })}
 

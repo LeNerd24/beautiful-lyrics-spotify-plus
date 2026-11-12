@@ -1,6 +1,7 @@
 import { SpotifyPlus } from 'spotifyplus';
 import { LineSyncedLyrics, SyllableSyncedLyrics, SyllableVocalSet } from '../Types/lyrics-types';
-import { endInterludeEarly, minimumInterludeDuration, TransformedLyrics } from './lyric-utilities';
+import { endInterludeEarly, TransformedLyrics } from './lyric-utilities';
+import { getDisplaySettings } from '../display-settings';
 import { supportsPronunciation } from './languages';
 import { localRomanization } from './romanization';
 
@@ -37,6 +38,7 @@ export class GenerationStore {
         const content: SyllableSyncedLyrics['Content'] = [];
         const contentIndex: number[] = [];
         let previousEnd: number | undefined;
+        const { interludeDuration } = getDisplaySettings();
 
         event.source.Content.forEach((line, index) => {
             if (line.Type === 'Interlude') {
@@ -47,7 +49,7 @@ export class GenerationStore {
 
             const gapStart = previousEnd ?? 0;
 
-            if (line.StartTime - gapStart >= minimumInterludeDuration && content[content.length - 1]?.Type !== 'Interlude') {
+            if (line.StartTime - gapStart >= interludeDuration && content[content.length - 1]?.Type !== 'Interlude') {
                 content.push({ Type: 'Interlude', StartTime: gapStart, EndTime: line.StartTime - endInterludeEarly });
             }
 

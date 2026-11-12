@@ -4,13 +4,16 @@ import { SharedValue } from 'spotifyplus/react/Animated';
 import { LineVocal } from '../Types/lyrics-types';
 import { createWorkletSpring, updateWorkletSpring } from './spring';
 import { sampleMotion } from './native-motion';
-import { LyricsFontFamily } from '../theme/fonts';
+import { lyricsFontFamily } from '../theme/fonts';
+import { scaledFontSize, useDisplaySettings } from '../display-settings';
 import GradientText from '../Components/gradient-text';
 import { LyricsPresentation, linePresentation } from '../Lyrics/presentation';
 
 interface Props extends CommonViewProps { line: LineVocal; playbackMs: SharedValue<number>; presentation?: LyricsPresentation; small?: boolean; inheritOpacity?: boolean }
 
 const LineView = ({ line, style, presentation, small = false, inheritOpacity = false }: Props) => {
+    const settings = useDisplaySettings();
+    const fontFamily = lyricsFontFamily(settings.font);
     const display = linePresentation(line.Text, line.TranslatedText, line.RomanizedText, presentation);
     const motionTrack = useMemo(() => {
         const durationMs = Math.max(1, (line.EndTime - line.StartTime) * 1000);
@@ -27,15 +30,15 @@ const LineView = ({ line, style, presentation, small = false, inheritOpacity = f
     }, [line, inheritOpacity]);
     return (
         <View style={[{ position: 'relative', alignSelf: line.OppositeAligned ? 'flex-end' : 'flex-start' }, style]}>
-            <GradientText motionTrack={motionTrack} text={display.lead} textSizeSp={small ? 18 : 36}
+            <GradientText motionTrack={motionTrack} text={display.lead} textSizeSp={scaledFontSize(small ? 18 : 36, settings)}
                 textColor="#ffffff" textAlign={line.OppositeAligned ? 'right' : 'left'}
                 gradientColors={['#ffffffff', '#78ffffff']} gradientDirection="topToBottom"
-                gradientTransitionWidth={0.3} style={{ fontFamily: LyricsFontFamily }} />
+                gradientTransitionWidth={0.3} style={{ fontFamily }} />
             {[display.secondary, display.pronunciation].filter(Boolean).map((text, i) =>
-                <GradientText key={i} motionTrack={motionTrack} text={text!} textSizeSp={18}
+                <GradientText key={i} motionTrack={motionTrack} text={text!} textSizeSp={scaledFontSize(18, settings)}
                     textColor="#ffffff" textAlign={line.OppositeAligned ? 'right' : 'left'}
                     gradientColors={['#ffffffff', '#78ffffff']} gradientDirection="topToBottom"
-                    gradientTransitionWidth={0.3} style={{ fontFamily: LyricsFontFamily, marginTop: 3 }} />)}
+                    gradientTransitionWidth={0.3} style={{ fontFamily, marginTop: 3 }} />)}
         </View>
     );
 };

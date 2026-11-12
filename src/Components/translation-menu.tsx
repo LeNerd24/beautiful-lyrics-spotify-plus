@@ -1,8 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, Image, createNativeComponent, CommonViewProps, Text, View } from 'spotifyplus/react';
 import { SpotifyPlus, AndroidBackButtonEvent } from 'spotifyplus';
 import Animated, { Easing, SharedValue, useAnimatedStyle, useSharedValue, withTiming } from 'spotifyplus/react/reanimated';
-import { nativeFadeStyle } from './native-fade';
+import { nativeFadeStyle, restingFade } from './native-fade';
 
 const VectorIcon = createNativeComponent<CommonViewProps & { name: 'globe' | 'subtitle' }>('LyricsTranslationIcon');
 const translateIcon = SpotifyPlus.Assets.image('assets/images/translate.png');
@@ -70,11 +70,11 @@ export default function TranslationMenu(props: Props) {
     const actionsHeight = props.actionsHeight;
     const landscape = props.actionsRight !== undefined;
 
-    const buttonStyle = useAnimatedStyle(() => {
+    const buttonStyle = useAnimatedStyle(useCallback(() => {
         'worklet';
 
         return { bottom: controlsHeight.value - (actionsHeight?.value ?? 0) + 2, ...nativeFadeStyle(controlsOpacity.value) };
-    });
+    }, [actionsHeight, controlsHeight, controlsOpacity]));
 
     const animatedStyle = useAnimatedStyle(() => {
         'worklet';
@@ -114,7 +114,7 @@ export default function TranslationMenu(props: Props) {
 
     return (
         <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, elevation: 40 }}>
-            <Animated.View pointerEvents={props.controlsVisible ? 'auto' : 'none'} style={[landscape ? { position: 'absolute', right: props.actionsRight } : { position: 'absolute', left: 28 }, buttonStyle]}>
+            <Animated.View pointerEvents={props.controlsVisible ? 'auto' : 'none'} style={[landscape ? { position: 'absolute', right: props.actionsRight } : { position: 'absolute', left: 28 }, buttonStyle, restingFade(props.controlsVisible)]}>
                 <Pressable accessibilityLabel="Lyrics translation options" onPress={show}
                     style={({ pressed }) => ({
                         width: 44,

@@ -5,7 +5,8 @@ import Spline from 'typescript-cubic-spline';
 import { SyllableMetadata } from '../Types/lyrics-types';
 import { sampleMotion, springSamples } from './native-motion';
 import { AnimationStyle, appleEmphasisTracks } from './animation-style';
-import { LyricsFontFamily } from '../theme/fonts';
+import { lyricsFontFamily } from '../theme/fonts';
+import { scaledFontSize, useDisplaySettings } from '../display-settings';
 import GradientText from '../Components/gradient-text';
 import { LyricMotion } from '../Components/lyric-motion';
 
@@ -19,7 +20,9 @@ const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 const TextGradient = ['#ffffffff', '#78ffffff'];
 
 const SyllableView = ({ syllable, emphasized, animationStyle, isBackground = false, isLastWord = false, scaleSpline, yOffsetSpline, glowSpline }: Props) => {
-    const fontSize = isBackground ? 18 : 36;
+    const settings = useDisplaySettings();
+    const fontSize = scaledFontSize(isBackground ? 18 : 36, settings);
+    const fontStyle = { fontFamily: lyricsFontFamily(settings.font) };
 
     const tracks = useMemo(() => {
         const startMs = syllable.StartTime * 1000;
@@ -76,7 +79,7 @@ const SyllableView = ({ syllable, emphasized, animationStyle, isBackground = fal
         <LyricMotion motionTrack={tracks.word} style={{ flexDirection: 'row', position: 'relative', alignSelf: 'flex-start', marginRight: syllable.IsPartOfWord ? 0 : 5 }}>
             {[...syllable.Text].map((char, index) => (
                 <View key={`${char}-${index}`} style={{ position: 'relative', alignSelf: 'flex-start' }}>
-                    <GradientText motionTrack={tracks.letters[index]} text={char} textSizeSp={fontSize} textColor='#ffffff' gradientColors={TextGradient} gradientDirection='leftToRight' gradientTransitionWidth={0.3} style={{ fontFamily: LyricsFontFamily }} />
+                    <GradientText motionTrack={tracks.letters[index]} text={char} textSizeSp={fontSize} textColor='#ffffff' gradientColors={TextGradient} gradientDirection='leftToRight' gradientTransitionWidth={0.3} style={fontStyle} />
                 </View>
             ))}
         </LyricMotion>
@@ -84,7 +87,7 @@ const SyllableView = ({ syllable, emphasized, animationStyle, isBackground = fal
 
     return (
         <View style={{ position: 'relative', alignSelf: 'flex-start' }}>
-            <GradientText motionTrack={tracks.word} text={`${syllable.Text}${syllable.IsPartOfWord ? '' : ' '}`} textSizeSp={fontSize} textColor='#ffffff' gradientColors={TextGradient} gradientDirection='leftToRight' gradientTransitionWidth={0.3} style={{ fontFamily: LyricsFontFamily }} />
+            <GradientText motionTrack={tracks.word} text={`${syllable.Text}${syllable.IsPartOfWord ? '' : ' '}`} textSizeSp={fontSize} textColor='#ffffff' gradientColors={TextGradient} gradientDirection='leftToRight' gradientTransitionWidth={0.3} style={fontStyle} />
         </View>
     );
 };

@@ -10,7 +10,7 @@ import { AnimationStyle } from './Entities/animation-style';
 import { ChromeButton, LyricsInset, LyricsTitle, PlayerControls } from './Components/player-chrome';
 import { CONTROLS_FADE_MS, ControlsVisibility, LANDSCAPE_ACTIONS_HEIGHT, LINE_BLUR_KEY, LyricsViewportSize, isLandscape, landscapeLayout, lineBlurRadius, lineBlurSetting } from './Components/player-model';
 import { LANDSCAPE_ALIGN_POSITION } from './Lyrics/scroll-model';
-import { nativeFadeStyle } from './Components/native-fade';
+import { nativeFadeStyle, restingFade } from './Components/native-fade';
 import { GestureDetector } from 'spotifyplus/react/Gesture';
 import { SingControl } from './Components/sing-control';
 import TranslationMenu from './Components/translation-menu';
@@ -21,6 +21,8 @@ import { generationStore, setGenerationSource, startGeneration } from './Lyrics/
 import { TrackGenerationProgress } from './Components/generation-progress';
 import { waitForCurrentTrack } from './Lyrics/current-track';
 import { createAbortController } from './Lyrics/platform-utils';
+import { getDisplaySettings, useDisplaySettings } from './display-settings';
+import { Lyrics } from './Types/lyrics-types';
 
 const AUTO_GENERATE_DELAY_MS = 5000;
 
@@ -29,7 +31,12 @@ const AnimatedBackground = createNativeComponent<CommonViewProps & { imageUrl?: 
 const App = ({ headerRef, headerGesture, viewport }: { headerRef?: React.RefObject<View | null>; headerGesture?: React.ComponentProps<typeof GestureDetector>['gesture']; viewport?: LyricsViewportSize } = {}) => {
     const landscape = !!viewport && isLandscape(viewport);
     const wide = landscape ? landscapeLayout(viewport) : undefined;
-    const [loadedLyrics, setLoadedLyrics] = useState<TransformedLyrics>();
+    const displaySettings = useDisplaySettings();
+    const [providerLyrics, setProviderLyrics] = useState<{ trackId: string; raw: Lyrics; transformed: TransformedLyrics; interludeDuration: number }>();
+    const loadedLyrics = useMemo(() => {
+        if (!providerLyrics || providerLyrics.interludeDuration === displaySettings.interludeDuration) return providerLyrics?.transformed;
+        return transformLyrics(providerLyrics.raw, displaySettings.interludeDuration);
+    }, [providerLyrics, displaySettings.interludeDuration]);
     const [track, setTrack] = useState<SpotifyTrack>();
     const generationLyrics = useSyncExternalStore(generationStore.subscribe, () => generationStore.getLyrics(track?.id));
     const transformGeneration = useMemo(() => createLyricsTransformer(), []);
@@ -152,12 +159,14 @@ const App = ({ headerRef, headerGesture, viewport }: { headerRef?: React.RefObje
         };
     }, []);
 
+    const disableAi = displaySettings.disableAi;
+
     useEffect(() => {
         let cancelled = false;
         const controller = createAbortController();
 
         const loadLyrics = async () => {
-            setLoading(true); setError(undefined); setLoadedLyrics(undefined); setTrack(undefined);
+            setLoading(true); setError(undefined); setProviderLyrics(undefined); setTrack(undefined);
 
             try {
                 const current = await waitForCurrentTrack(() => SpotifyPlus.Player.getCurrentTrack(), controller.signal, expectedTrackUri.current, () => {
@@ -176,14 +185,15 @@ const App = ({ headerRef, headerGesture, viewport }: { headerRef?: React.RefObje
                     console.log('Could not read liked state', String(e)); updateLiked(false);
                 }
 
-                const response = await fetch(`https://spotifyplus-api.devon-shoutz.workers.dev/api/lyrics/${current.id}`, { signal: controller.signal });
+                const response = await fetch(`https://spotifyplus-api.devon-shoutz.workers.dev/api/lyrics/${current.id}${disableAi ? '?ai=0' : ''}`, { signal: controller.signal });
                 if (!response.ok) throw new Error('Lyrics are unavailable for this song');
 
-                const transformed = transformLyrics(await response.json() as any);
+                const raw = await response.json() as Lyrics;
+                const interludeDuration = getDisplaySettings().interludeDuration;
+                const transformed = transformLyrics(raw, interludeDuration);
                 if (cancelled) return;
 
-                setGenerationSource(current.id, transformed);
-                setLoadedLyrics(transformed);
+                setProviderLyrics({ trackId: current.id, raw, transformed, interludeDuration });
             } catch (e) {
                 if (!cancelled) setError((e as Error).message);
             } finally {
@@ -194,7 +204,11 @@ const App = ({ headerRef, headerGesture, viewport }: { headerRef?: React.RefObje
         loadLyrics();
 
         return () => { cancelled = true; controller.abort(); };
-    }, [songRevision, updateLiked]);
+    }, [songRevision, updateLiked, disableAi]);
+
+    useEffect(() => {
+        if (providerLyrics && loadedLyrics) setGenerationSource(providerLyrics.trackId, loadedLyrics);
+    }, [providerLyrics, loadedLyrics]);
 
     useEffect(() => {
         const trackId = track?.id;
@@ -231,19 +245,21 @@ const App = ({ headerRef, headerGesture, viewport }: { headerRef?: React.RefObje
         if (size && probe && probe.width > 0 && size.height > 0) controlsHeight.value = size.height / (probe.width / 100) + actionsHeight.value;
     }, [actionsHeight, controlsHeight, panelMeasure]));
 
-    const panelStyle = useAnimatedStyle(() => {
+    // Stable updaters keep these styles registered across renders instead of being torn down and re-registered each time
+    const panelStyle = useAnimatedStyle(useCallback(() => {
         'worklet';
 
         return nativeFadeStyle(controlsOpacity.value);
-    });
-    const singStyle = useAnimatedStyle(() => {
+    }, [controlsOpacity]));
+    const singStyle = useAnimatedStyle(useCallback(() => {
         'worklet';
         return { bottom: Math.max(0, controlsHeight.value - actionsHeight.value - 4), ...nativeFadeStyle(controlsOpacity.value) };
-    });
-    const actionsStyle = useAnimatedStyle(() => {
+    }, [actionsHeight, controlsHeight, controlsOpacity]));
+    const actionsStyle = useAnimatedStyle(useCallback(() => {
         'worklet';
         return { bottom: controlsHeight.value - actionsHeight.value + 2, ...nativeFadeStyle(controlsOpacity.value) };
-    });
+    }, [actionsHeight, controlsHeight, controlsOpacity]));
+    const controlsFade = restingFade(controlsVisible);
     const infoStyle = useAnimatedStyle(() => {
         'worklet';
         const panelHeight = controlsHeight.value - actionsHeight.value;
@@ -334,16 +350,16 @@ const App = ({ headerRef, headerGesture, viewport }: { headerRef?: React.RefObje
                         </View>
                     </View>
 
-                    <Animated.View ref={panel} pointerEvents={controlsVisible ? 'auto' : 'none'} style={[{ position: 'absolute', left: 0, right: 0, bottom: 0, elevation: 30 }, panelStyle]}>
+                    <Animated.View ref={panel} pointerEvents={controlsVisible ? 'auto' : 'none'} style={[{ position: 'absolute', left: 0, right: 0, bottom: 0, elevation: 30 }, panelStyle, controlsFade]}>
                         <PlayerControls key={track?.uri} landscape={landscape} playbackMs={playbackMs} durationMs={track?.durationMs ?? 0} paused={paused} onInteract={revealControls} onHold={() => { holdControls(); revealControls(); }} onRelease={releaseControls} />
                     </Animated.View>
 
-                    {landscape && track && <Animated.View pointerEvents={controlsVisible ? 'auto' : 'none'} style={[{ position: 'absolute', right: 12, flexDirection: 'row', elevation: 31 }, actionsStyle]}>
+                    {landscape && track && <Animated.View pointerEvents={controlsVisible ? 'auto' : 'none'} style={[{ position: 'absolute', right: 12, flexDirection: 'row', elevation: 31 }, actionsStyle, controlsFade]}>
                         <ChromeButton name='heart' label={liked ? 'Unlike song' : 'Like song'} compact filled={liked} onPress={toggleLike} />
                         <ChromeButton name='more' label='Now Playing context menu' compact onPress={openContextMenu} />
                     </Animated.View>}
 
-                    {localPlayback && <Animated.View pointerEvents={controlsVisible ? 'auto' : 'none'} style={[{ position: 'absolute', right: landscape ? 96 : 22, elevation: 31 }, singStyle]}>
+                    {localPlayback && <Animated.View pointerEvents={controlsVisible ? 'auto' : 'none'} style={[{ position: 'absolute', right: landscape ? 96 : 22, elevation: 31 }, singStyle, controlsFade]}>
                         <SingControl visible={controlsVisible} reducedMotion={reducedMotion} onHold={holdSingControls} onRelease={releaseControls} />
                     </Animated.View>}
 

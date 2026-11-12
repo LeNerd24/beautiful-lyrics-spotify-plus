@@ -30,6 +30,7 @@ export type ScrollLayout = {
     heights: number[];
     viewportHeight: number;
     alignPosition: number;
+    lyricGap: number;
     maxOffset: number;
     transition?: {
         startedAt: number;
@@ -56,7 +57,7 @@ export function rowPlaybackPosition(positionMs: number, startMs: number, endMs: 
     return positionMs < startMs ? startMs - 1 : Math.min(positionMs, endMs + 1500);
 }
 
-export function buildScrollLayout(heights: number[], viewportHeight: number, interludes: boolean[] = [], expandedInterlude = -1, alignPosition = ALIGN_POSITION): ScrollLayout {
+export function buildScrollLayout(heights: number[], viewportHeight: number, interludes: boolean[] = [], expandedInterlude = -1, alignPosition = ALIGN_POSITION, lyricGap = LYRIC_GAP): ScrollLayout {
     'worklet';
 
     const tops: number[] = [];
@@ -70,7 +71,7 @@ export function buildScrollLayout(heights: number[], viewportHeight: number, int
         const height = interludes[index] && index !== expandedInterlude ? 0 : heights[index];
         layoutHeights.push(height);
 
-        if (height > 0 && occupied) top += interludes[index] || previousInterlude ? INTERLUDE_GAP : LYRIC_GAP;
+        if (height > 0 && occupied) top += interludes[index] || previousInterlude ? INTERLUDE_GAP : lyricGap;
         tops.push(top);
         top += height;
 
@@ -85,6 +86,7 @@ export function buildScrollLayout(heights: number[], viewportHeight: number, int
         heights: layoutHeights,
         viewportHeight,
         alignPosition,
+        lyricGap,
         maxOffset: Math.max(0, top + viewportHeight * (1 - alignPosition) - viewportHeight),
     };
 }

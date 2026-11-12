@@ -30,12 +30,16 @@ const rightToLeftLanguages = [
 export const minimumInterludeDuration: number = 4;
 export const endInterludeEarly: number = 0.25;
 
-// franc often scores short Hindi lyrics as a closely related Hindi-belt language (e.g. Magahi or Bhojpuri)
-const hindiBelt = ['mag', 'bho', 'mai', 'awa', 'hne', 'bra', 'bgc', 'raj', 'mwr', 'mup'];
-const detectLanguage = (text: string): string => {
-    const language = franc(text);
-    return hindiBelt.includes(language) ? 'hin' : language;
-};
+// Unrestricted, franc routinely scores lyrics as a close relative of their actual language (English as Scots or Low German,
+// Hindi as Magahi or Bhojpuri), so only languages songs are realistically written in are considered
+const lyricLanguages = [
+    'eng', 'spa', 'por', 'fra', 'deu', 'ita', 'nld', 'swe', 'nob', 'dan', 'fin', 'pol', 'ces', 'slk', 'hun', 'ron', 'tur',
+    'rus', 'ukr', 'bel', 'bul', 'srp', 'hrv', 'bos', 'slv', 'mkd', 'ell', 'als', 'lit', 'lvs', 'ekk', 'cat', 'glg',
+    'cmn', 'jpn', 'kor', 'hin', 'ben', 'pan', 'tam', 'tel', 'kan', 'mal', 'mar', 'guj', 'urd', 'npi', 'sin',
+    'pes', 'arb', 'heb', 'tha', 'vie', 'ind', 'zlm', 'tgl', 'swh', 'yor', 'hau', 'ibo', 'zul', 'xho', 'afr', 'amh', 'som',
+    'kat', 'hye', 'azj', 'kaz', 'uzn', 'khk', 'khm', 'lao', 'mya',
+];
+const detectLanguage = (text: string): string => franc(text, { only: lyricLanguages });
 
 const getNaturalAlignment = (language: string): NaturalAlignment => { return rightToLeftLanguages.includes(language) ? 'right' : 'left'; }
 
@@ -125,7 +129,7 @@ export function createLyricsTransformer() {
     };
 }
 
-export const transformLyrics = (providerLyrics: Lyrics): TransformedLyrics => {
+export const transformLyrics = (providerLyrics: Lyrics, interludeDuration = minimumInterludeDuration): TransformedLyrics => {
     if (!providerLyrics || !['Static', 'Line', 'Syllable'].includes(providerLyrics.Type)) throw new Error('No lyrics available for this song.');
     const lyrics = cloneLyrics(providerLyrics) as TransformedLyrics;
     applyLyricOffset(lyrics);
@@ -233,7 +237,7 @@ export const transformLyrics = (providerLyrics: Lyrics): TransformedLyrics => {
     let addedStartInterlude = false;
 
     const firstVocalGroup = vocalTimes[0];
-    if (firstVocalGroup && firstVocalGroup.startTime >= minimumInterludeDuration) {
+    if (firstVocalGroup && firstVocalGroup.startTime >= interludeDuration) {
         vocalTimes.unshift({ startTime: -1, endTime: -1 });
         lyrics.Content.unshift({
             Type: 'Interlude',
@@ -248,7 +252,7 @@ export const transformLyrics = (providerLyrics: Lyrics): TransformedLyrics => {
         const endingVocalGroup = vocalTimes[index];
         const startingVocalGroup = vocalTimes[index - 1];
 
-        if ((endingVocalGroup.startTime - startingVocalGroup.endTime) >= minimumInterludeDuration) {
+        if ((endingVocalGroup.startTime - startingVocalGroup.endTime) >= interludeDuration) {
             vocalTimes.splice(index, 0, { startTime: -1, endTime: -1 });
             lyrics.Content.splice(index, 0, {
                 Type: 'Interlude',
